@@ -1,0 +1,24 @@
+{
+  "name": "shopsmart-mobile-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone search API for shopsmart_mobile — independent of shopsmart_web.",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --experimental-strip-types --watch src/index.ts",
+    "start": "node --env-file-if-exists=.env --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/services/*.test.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "playwright": "^1.61.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

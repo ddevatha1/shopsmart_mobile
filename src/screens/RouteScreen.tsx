@@ -19,7 +19,9 @@ import { useUserStore } from '../store/userStore';
 import { useRouteStore } from '../store/routeStore';
 import { groupCartByStore, locationKey } from '../utils/groupCartByStore';
 import { planShoppingTrip } from '../services/tripService';
+import { requestPreciseLocation } from '../services/locationService';
 import { subscribeToLiveLocation, type LiveLocation } from '../services/liveLocationService';
+import { LocationPermissionModal } from '../components/route/LocationPermissionModal';
 import {
   computeStopProgress,
   computeTripProgress,
@@ -37,6 +39,13 @@ import type { RootStackParamList } from '../navigation/types';
 import type { CartItem, StoreGroup, StoreName, TripPlan } from '../models/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Route'>;
+
+// One explainer per app session (module-scoped, so it survives navigating
+// away and back within the same launch but resets on a fresh app start),
+// not once per visit to this screen — a shopper who already said yes (or
+// explicitly skipped) shouldn't be asked again just for returning to the
+// cart and coming back here.
+let hasSeenLocationPrompt = false;
 
 /**
  * The "Navigation UI" layer — orchestrates the other route-planning pieces
@@ -80,6 +89,19 @@ export function RouteScreen({ navigation }: Props) {
   // react.dev/learn/you-might-not-need-an-effect).
   const routeKey = `${groups.map((g) => locationKey(g.location)).join(',')}|${zipcode}`;
 
+  const [locationPromptSeen, setLocationPromptSeen] = useState(hasSeenLocationPrompt);
+  const dismissLocationPrompt = () => {
+    hasSeenLocationPrompt = true;
+    setLocationPromptSeen(true);
+  };
+  const handleShareLocation = async () => {
+    // Errors (denied/unavailable/timeout) resolve to null — tripService's
+    // own getCurrentCoordinates() fallback to the saved ZIP still applies,
+    // exactly as if the shopper had tapped "skip" instead.
+    await requestPreciseLocation();
+    dismissLocationPrompt();
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
@@ -112,6 +134,8 @@ export function RouteScreen({ navigation }: Props) {
             </Text>
           ))}
         </View>
+      ) : !locationPromptSeen ? (
+        <LocationPermissionModal visible onShare={handleShareLocation} onSkip={dismissLocationPrompt} />
       ) : (
         <TripLoader
           key={routeKey}

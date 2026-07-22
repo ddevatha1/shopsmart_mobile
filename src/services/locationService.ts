@@ -19,6 +19,15 @@ export interface Coordinates {
   longitude: number;
 }
 
+export interface PreciseLocationResult {
+  coords: Coordinates;
+  /** The device's own radius-of-confidence for this fix, in meters —
+   * surfaced so the caller (the route-planning "share your exact location"
+   * prompt) can show the shopper how precise the fix it just got actually
+   * was, rather than a bare "done." */
+  accuracyMeters: number;
+}
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cached: { coords: Coordinates | null; expiresAt: number } | null = null;
 
@@ -40,4 +49,34 @@ export async function getCurrentCoordinates(): Promise<Coordinates | null> {
 
   cached = { coords, expiresAt: Date.now() + CACHE_TTL_MS };
   return coords;
+}
+
+/** A shopper-initiated, high-accuracy GPS fix — used only by the pre-route
+ * "share your exact location" prompt, where a shopper has explicitly asked
+ * for the most accurate starting point available for driving directions,
+ * rather than the quick/battery-friendly fix `getCurrentCoordinates`
+ * normally settles for. Always requests a fresh permission check and fix
+ * rather than trusting the cache, unlike `getCurrentCoordinates`. A
+ * successful result also refreshes the shared cache, so every other caller
+ * (product-detail distance, closest-store sorting) benefits from the more
+ * precise fix for the rest of its TTL too. */
+export async function requestPreciseLocation(): Promise<PreciseLocationResult | null> {
+  let result: PreciseLocationResult | null = null;
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status === 'granted') {
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+      });
+      result = {
+        coords: { latitude: position.coords.latitude, longitude: position.coords.longitude },
+        accuracyMeters: position.coords.accuracy ?? Number.POSITIVE_INFINITY,
+      };
+    }
+  } catch {
+    result = null;
+  }
+
+  cached = { coords: result?.coords ?? null, expiresAt: Date.now() + CACHE_TTL_MS };
+  return result;
 }

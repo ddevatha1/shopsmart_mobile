@@ -3,6 +3,7 @@ import { categorizeProduct, type GroceryCategory } from './groceryCategoryServic
 import { isOrganicProduct } from '../utils/filterProducts';
 import { haversineDistanceMiles } from '../utils/geo';
 import type { Coordinates } from './locationService';
+import { findTaxonomyEntry, classifyProductSubtype, type TaxonomyEntry } from '../data/groceryTaxonomy';
 
 /**
  * The comparison engine: turns the flat, per-store `ApiProduct[]` list
@@ -388,6 +389,16 @@ export interface ProductGroup {
   category: GroceryCategory;
   image_url?: string;
   listings: ApiProduct[];
+  /** 'taxonomy' when this group's identity came from a curated grocery
+   * taxonomy subtype (see groceryTaxonomy.ts) rather than emergent
+   * clustering; undefined for groups built the old way (dynamic
+   * clustering, or the synthetic combined/bypass group). Taxonomy-backed
+   * groups use a lower meaningful-category threshold in
+   * categoryLayerIsMeaningful — the taxonomy already guarantees they're
+   * real, distinct shopping choices (e.g. Bananas: Organic vs.
+   * Conventional is only 2 categories, but that IS the meaningful choice
+   * for that item). */
+  source?: 'taxonomy' | 'dynamic';
 }
 
 /** `name` with `brand`'s own words removed, whitespace and stray leading/
@@ -564,7 +575,88 @@ function buildGroupEntry(id: string, listings: ApiProduct[], query: string): Pro
     category: categorizeProduct(representative.product),
     image_url: representative.product.image_url,
     listings,
+    source: 'dynamic',
   };
+}
+
+/** Turns one resolved cluster's listings into one or two Stage 1 cards,
+ * splitting true per-piece listings from bulk ones (see isSoldIndividually)
+ * whenever a shopper would still see more than one store on *both* sides of
+ * the split — if one side would be left with just a single store, that
+ * split isn't presenting a meaningful "individual vs. bulk" decision, it's
+ * silently hiding that store's listings behind an easy-to-miss single-store
+ * category instead (the exact bug this guards against: a store whose corn
+ * happens to be sold "Each" disappearing from the main "Sweet Corn" card
+ * because every *other* store's corn is bagged). Shared by both the dynamic
+ * clustering pass and the taxonomy pass below — a taxonomy subtype like
+ * "Roma Tomatoes" needs the same individual-vs-bag split a dynamically
+ * clustered one does; the taxonomy only decides *which* subtype a listing
+ * belongs to, not whether its package format is also a real choice. */
+function buildSplitGroupEntries(id: string, listings: ApiProduct[], query: string): ProductGroup[] {
+  const singlePiece = listings.filter(isSoldIndividually);
+  const bulk = listings.filter((p) => !isSoldIndividually(p));
+
+  const bulkStoreCount = new Set(bulk.map((p) => p.store)).size;
+  const singleStoreCount = new Set(singlePiece.map((p) => p.store)).size;
+  const wouldOrphanAStore = bulk.length > 0 && singlePiece.length > 0
+    && (bulkStoreCount <= 1 || singleStoreCount <= 1);
+
+  if (wouldOrphanAStore) {
+    return [buildGroupEntry(id, listings, query)];
+  }
+
+  const result: ProductGroup[] = [];
+  let baseName: string | null = null;
+  if (bulk.length > 0) {
+    const bulkGroup = buildGroupEntry(id, bulk, query);
+    baseName = bulkGroup.name;
+    result.push(bulkGroup);
+  }
+  if (singlePiece.length > 0) {
+    const singleGroup = buildGroupEntry(`${id}__single`, singlePiece, query);
+    if (baseName) singleGroup.name = `${baseName} (Single)`;
+    result.push(singleGroup);
+  }
+  return result;
+}
+
+/** Classifies `products` into an entry's taxonomy subtypes, in the entry's
+ * declared order — one ProductGroup per non-empty subtype, canonically
+ * named (never derived from any one listing's raw name, unlike the dynamic
+ * path's representative-scoring), plus whatever products didn't match any
+ * subtype so the caller can still cluster and surface them instead of
+ * silently dropping them. */
+function buildTaxonomyProductGroups(
+  products: ApiProduct[],
+  entry: TaxonomyEntry,
+): { groups: ProductGroup[]; leftover: ApiProduct[] } {
+  const bySubtype = new Map<string, ApiProduct[]>();
+  const leftover: ApiProduct[] = [];
+  for (const product of products) {
+    const subtype = classifyProductSubtype(product, entry);
+    if (!subtype) {
+      leftover.push(product);
+      continue;
+    }
+    if (!bySubtype.has(subtype.id)) bySubtype.set(subtype.id, []);
+    bySubtype.get(subtype.id)!.push(product);
+  }
+
+  const groups: ProductGroup[] = [];
+  for (const subtype of entry.subtypes) {
+    const listings = bySubtype.get(subtype.id);
+    if (!listings || listings.length === 0) continue;
+    const split = buildSplitGroupEntries(`taxonomy:${entry.id}:${subtype.id}`, listings, subtype.label);
+    for (const g of split) {
+      const isSingleVariant = g.id.endsWith('__single');
+      groups.push({
+        ...g,
+        name: isSingleVariant ? `${subtype.label} (Single)` : subtype.label,
+        source: 'taxonomy',
+      });
+    }
+  }
+  return { groups, leftover };
 }
 
 /** True for a listing genuinely sold as one piece — a real, parsed signal
@@ -604,7 +696,7 @@ export function isSoldIndividually(product: ApiProduct): boolean {
  * into one comparison would hide that. The split only happens when both
  * kinds actually coexist in this search's results; a category sold only one
  * way keeps its plain name, no "(Single)" qualifier needed. */
-export function buildProductGroups(products: ApiProduct[], query: string): ProductGroup[] {
+function buildDynamicProductGroups(products: ApiProduct[], query: string): ProductGroup[] {
   const byKey = new Map<string, ApiProduct[]>();
   const order: string[] = [];
   for (const product of products) {
@@ -661,44 +753,37 @@ export function buildProductGroups(products: ApiProduct[], query: string): Produ
   const result: ProductGroup[] = [];
   for (const root of rootOrder) {
     if (!mergedByRoot.has(root)) continue; // absorbed into another root above
-    const listings = mergedByRoot.get(root)!;
-    const singlePiece = listings.filter(isSoldIndividually);
-    const bulk = listings.filter((p) => !isSoldIndividually(p));
-
-    // Splitting bulk vs. single-piece listings into two Stage 1 cards is
-    // only a real choice when a shopper would still see more than one
-    // store on *both* sides of the split — if one side would be left with
-    // just a single store, that split isn't presenting a meaningful
-    // "individual vs. bulk" decision, it's silently hiding that store's
-    // listings behind an easy-to-miss single-store category instead (the
-    // exact bug this guards against: a store whose corn happens to be
-    // sold "Each" disappearing from the main "Sweet Corn" card because
-    // every *other* store's corn is bagged). In that case, keep everything
-    // in one group instead of forcing an uneven split.
-    const bulkStoreCount = new Set(bulk.map((p) => p.store)).size;
-    const singleStoreCount = new Set(singlePiece.map((p) => p.store)).size;
-    const wouldOrphanAStore = bulk.length > 0 && singlePiece.length > 0
-      && (bulkStoreCount <= 1 || singleStoreCount <= 1);
-
-    if (wouldOrphanAStore) {
-      result.push(buildGroupEntry(root, listings, query));
-      continue;
-    }
-
-    let baseName: string | null = null;
-    if (bulk.length > 0) {
-      const bulkGroup = buildGroupEntry(root, bulk, query);
-      baseName = bulkGroup.name;
-      result.push(bulkGroup);
-    }
-    if (singlePiece.length > 0) {
-      const singleGroup = buildGroupEntry(`${root}__single`, singlePiece, query);
-      if (baseName) singleGroup.name = `${baseName} (Single)`;
-      result.push(singleGroup);
-    }
+    result.push(...buildSplitGroupEntries(root, mergedByRoot.get(root)!, query));
   }
 
   return result
+    .map((group) => ({ group, relevance: queryRelevanceScore(query, group.name) }))
+    .sort((a, b) => b.relevance - a.relevance)
+    .map(({ group }) => group);
+}
+
+/** Groups a set of "direct match" listings into one card per semantic
+ * product, spanning every store that carries it — the public entry point
+ * both apps' search screens use.
+ *
+ * When the active search `query` matches a curated grocery taxonomy entry
+ * (see groceryTaxonomy.ts — "milk," "chicken," "apples," ...), products are
+ * classified into that entry's natural subtypes first (Whole Milk, 2% Milk,
+ * Chicken Breast, Chicken Thighs, ...), each rendered under its canonical
+ * label rather than whatever one listing's raw name happened to be.
+ * Anything that doesn't name a specific subtype the taxonomy anticipated —
+ * because the query has no taxonomy entry at all, or a listing just doesn't
+ * say which variety it is — falls through to the original dynamic identity-
+ * clustering pass (buildDynamicProductGroups) exactly as before, so no
+ * product is ever dropped for lacking a taxonomy match. */
+export function buildProductGroups(products: ApiProduct[], query: string): ProductGroup[] {
+  const entry = findTaxonomyEntry(query);
+  if (!entry) return buildDynamicProductGroups(products, query);
+
+  const { groups: taxonomyGroups, leftover } = buildTaxonomyProductGroups(products, entry);
+  const leftoverGroups = leftover.length > 0 ? buildDynamicProductGroups(leftover, query) : [];
+
+  return [...taxonomyGroups, ...leftoverGroups]
     .map((group) => ({ group, relevance: queryRelevanceScore(query, group.name) }))
     .sort((a, b) => b.relevance - a.relevance)
     .map(({ group }) => group);
@@ -797,6 +882,13 @@ export function shortenSiblingLabel(rawName: string, currentContextName: string,
 // was being skipped far more often than intended — count alone, on a
 // properly deduplicated/filtered list of categories, is the whole rule.
 const MIN_MEANINGFUL_CATEGORIES = 3;
+// A taxonomy-backed item (see groceryTaxonomy.ts) doesn't need the same bar
+// as emergent clustering — the taxonomy itself is the evidence that these
+// are real, distinct shopping choices (e.g. "Bananas" only ever has
+// Organic/Conventional, exactly 2, and that split is still the meaningful
+// choice a shopper is making — requiring 3 would mean this item's category
+// grid could *never* show).
+const MIN_MEANINGFUL_TAXONOMY_CATEGORIES = 2;
 
 /** Counts only valid, unique, non-empty categories: a blank/placeholder
  * name, a name that's a case-insensitive duplicate of one already counted,
@@ -817,15 +909,20 @@ export function countMeaningfulCategories(groups: ProductGroup[]): number {
 
 /** Whether Stage 1's category grid is worth showing at all for this
  * search, judged purely from the shape of the results — never a
- * per-product/per-query special case. A single, deterministic rule: at
- * least three meaningful (multi-store, actually comparable) categories —
- * fewer than three isn't really a choice ("Chicken Breast" vs. "Chicken
- * Thigh" doesn't need an intermediate click; "Greek Yogurt" vs. "Regular
- * Yogurt" vs. "Drinkable Yogurt" vs. "Cottage Cheese" vs. "Cream Cheese"
- * does). Used by both apps' search screen to decide whether to route
- * straight into the same Product Comparison View that normally follows
- * tapping a category — see buildCombinedGroup. */
+ * per-product/per-query special case. Two thresholds: a taxonomy-backed
+ * search (see groceryTaxonomy.ts) needs only 2 real subtype categories —
+ * "Chicken Breast" vs. "Chicken Thighs" *is* the meaningful choice for a
+ * "chicken" search, and requiring 3 would mean some taxonomy items (e.g.
+ * Bananas: Organic vs. Conventional) could never show the grid at all — a
+ * search resolved entirely by emergent dynamic clustering still needs 3,
+ * since without a curated taxonomy backing them, 2 loosely-related
+ * clusters aren't reliably a real choice worth an extra click. Used by
+ * both apps' search screen to decide whether to route straight into the
+ * same Product Comparison View that normally follows tapping a category —
+ * see buildCombinedGroup. */
 export function categoryLayerIsMeaningful(multiStoreGroups: ProductGroup[]): boolean {
+  const taxonomyGroups = multiStoreGroups.filter((g) => g.source === 'taxonomy');
+  if (countMeaningfulCategories(taxonomyGroups) >= MIN_MEANINGFUL_TAXONOMY_CATEGORIES) return true;
   return countMeaningfulCategories(multiStoreGroups) >= MIN_MEANINGFUL_CATEGORIES;
 }
 

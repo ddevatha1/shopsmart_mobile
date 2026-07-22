@@ -20,8 +20,8 @@ import { isOrganicProduct } from '../utils/filterProducts';
 
 /**
  * Mirrors shopsmart_web/src/components/ProductCard.tsx: store badge,
- * add-to-cart button with checkmark feedback, "Live" badge, "Organic"
- * badge, price/discount, brand, name, star rating, size, and pickup/
+ * add-to-cart button with checkmark feedback, "Organic" badge,
+ * price/discount, brand, name, star rating, size, and pickup/
  * delivery fulfillment badges. Tap interactions replace the web's hover
  * interactions (scale/shadow on hover → tap ripple + navigation).
  */
@@ -108,13 +108,6 @@ export function ProductCard({
               <Ionicons name={cartFeedback ? 'checkmark' : 'add'} size={16} color={cartFeedback ? colors.green : colors.white} />
             </Animated.View>
           </AnimatedPressable>
-
-          {product.isLiveData && (
-            <View style={[styles.badge, styles.liveBadge]}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-          )}
 
           {isOrganic && (
             <View style={[styles.badge, styles.organicBadge]}>
@@ -237,18 +230,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...elevation.medium,
   },
-  liveBadge: {
-    bottom: spacing.sm,
-    right: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(5,150,105,0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    gap: 4,
-  },
-  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.white },
-  liveText: { color: colors.white, fontSize: 8.5, fontWeight: '800', letterSpacing: 0.5 },
   organicBadge: {
     bottom: spacing.sm,
     left: spacing.sm,

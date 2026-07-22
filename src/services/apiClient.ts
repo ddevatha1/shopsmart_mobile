@@ -77,6 +77,21 @@ function isValidTripPlan(value: unknown): value is TripPlan {
   return true;
 }
 
+export interface WarmupStoreResult {
+  store: string;
+  ok: boolean;
+  ms: number;
+  error?: string;
+}
+
+export interface WarmupResult {
+  startedAt: number;
+  completedAt: number;
+  totalMs: number;
+  zipcode?: string;
+  stores: WarmupStoreResult[];
+}
+
 export class ApiClient {
   readonly baseUrl: string;
 
@@ -84,11 +99,31 @@ export class ApiClient {
     this.baseUrl = baseUrl ?? process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_BASE_URL;
   }
 
-  async search(query: string, zipcode: string): Promise<SearchResponse> {
+  /** Triggers the backend's app-startup warm-up (see backend/src/services/
+   * warmupService.ts) — moves Kroger/Aldi/Sprouts/Trader Joe's session and
+   * store-location initialization out of the first real search. Never
+   * throws: a failed or unreachable warm-up just means the backend falls
+   * back to its normal lazy first-search initialization, so callers treat
+   * this as best-effort and never gate search on it. */
+  async warmup(zipcode?: string): Promise<WarmupResult | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/warmup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zipcode }),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as WarmupResult;
+    } catch {
+      return null;
+    }
+  }
+
+  async search(query: string, zipcode: string, options?: { noCorrect?: boolean }): Promise<SearchResponse> {
     const res = await fetch(`${this.baseUrl}/api/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, zipcode }),
+      body: JSON.stringify({ query, zipcode, noCorrect: options?.noCorrect }),
     });
 
     const body = await res.json().catch(() => ({}));

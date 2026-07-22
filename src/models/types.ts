@@ -84,9 +84,21 @@ export interface StoreStatus {
   error?: string;
 }
 
+/** Set on the response only when the query pipeline (see
+ * backend/src/services/queryCorrection.ts) found a typo/spelling correction
+ * worth surfacing — omitted entirely for an already-correct or unrecognized
+ * query, never present with a 'none' level. */
+export interface QueryCorrectionInfo {
+  original: string;
+  corrected: string;
+  confidence: number;
+  level: 'moderate' | 'high';
+}
+
 export interface SearchResponse {
   products: ApiProduct[];
   storeStatuses: StoreStatus[];
+  correction?: QueryCorrectionInfo;
 }
 
 // ── Route planning — mirrors backend/src/types/index.ts field-for-field ────

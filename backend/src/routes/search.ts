@@ -9,6 +9,8 @@ import { searchSproutsWithTimeout } from '../services/sproutsLiveScraper.ts';
 import { searchKrogerWithTimeout } from '../services/krogerLiveScraper.ts';
 import { searchTraderJoesWithTimeout } from '../services/traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from '../services/aldiLiveScraper.ts';
+import { correctQuery, logQueryCorrection } from '../services/queryCorrection.ts';
+import { perfLog } from '../utils/perfLog.ts';
 
 type StoreName = ApiProduct['store'];
 
@@ -546,13 +548,33 @@ function isFoodProductName(name: string): boolean {
 // cached on-device, with a category icon as the last resort), which finds
 // a better match than a generic keyword-matched category graphic would.
 
-export async function handleSearch(req: Request, res: Response): Promise<void> {
-  const body = req.body as { query?: string; zipcode?: string };
+// Wraps a store's search promise with start/end instrumentation — every
+// call is timed individually (not just the overall request) so a slow
+// store is identifiable in logs regardless of how the other three perform,
+// and so first-search-vs-later comparisons can be made per store, not just
+// in aggregate.
+function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
+  const start = Date.now();
+  perfLog('search:store-start', { store });
+  return promise.then(
+    (value) => {
+      perfLog('search:store-complete', { store, ok: true, ms: Date.now() - start });
+      return value;
+    },
+    (err) => {
+      perfLog('search:store-complete', { store, ok: false, ms: Date.now() - start });
+      throw err;
+    },
+  );
+}
 
-  const query = body.query?.trim();
+export async function handleSearch(req: Request, res: Response): Promise<void> {
+  const body = req.body as { query?: string; zipcode?: string; noCorrect?: boolean };
+
+  const rawQuery = body.query?.trim();
   const zipcode = body.zipcode?.trim();
 
-  if (!query || !zipcode) {
+  if (!rawQuery || !zipcode) {
     res.status(400).json({ error: '`query` and `zipcode` are required.' });
     return;
   }
@@ -562,15 +584,35 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  const requestStart = Date.now();
+  perfLog('search:request-start', { query: rawQuery, zipcode });
+
+  // Query preprocessing: normalize + typo-correct before any store API is
+  // called. Pure in-memory string comparison against a small vocabulary —
+  // microseconds, not milliseconds (see queryCorrection.ts) — so this stage
+  // is never the explanation for a slow search, but it's timed anyway so a
+  // future regression here is immediately visible in the same place as
+  // every other stage.
+  const correctionStart = Date.now();
+  const correction = body.noCorrect
+    ? { original: rawQuery, normalized: rawQuery.trim(), corrected: rawQuery.trim(), correctedDisplay: rawQuery.trim(), confidence: 1, level: 'none' as const, method: 'skipped-by-request' }
+    : correctQuery(rawQuery);
+  logQueryCorrection(correction);
+  perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level });
+  const query = correction.level === 'none' ? correction.normalized : correction.corrected;
+
   // Run the live Trader Joe's scraper, live Sprouts scraper, live Kroger API,
   // and live Aldi API in parallel.
   // Total latency = max(traderJoesTime, sproutsTime, krogerTime, aldiTime).
   const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.allSettled([
-    searchTraderJoesWithTimeout(query, zipcode, 45_000), // still browser-based; includes storefront visit on first run
-    searchSproutsWithTimeout(query, zipcode, 15_000), // plain GraphQL API, no browser
-    searchKrogerWithTimeout(query, zipcode, 15_000), // REST API, no browser
-    searchAldiWithTimeout(query, zipcode, 15_000), // GraphQL API, no browser
+    timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000)), // still browser-based; includes storefront visit on first run
+    timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000)), // plain GraphQL API, no browser
+    timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000)), // REST API, no browser
+    timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000)), // GraphQL API, no browser
   ]);
+
+  const aggregateStart = Date.now();
+  perfLog('search:aggregate-start', {});
 
   const storeMap = new Map<StoreName, ScoredProduct[]>();
   const storeErrors = new Map<StoreName, string>();
@@ -580,6 +622,11 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
   // selectStoreProducts (classify, score, diversify, cap — see above),
   // which also bakes in matchType and relevance so the final merge below
   // doesn't need to recompute either.
+  // Per-store retrieval funnel — logs exactly how many products survive
+  // each filtering stage and, critically, *which* products were dropped
+  // and why, so a "global search is missing products the single-store
+  // search finds" regression is immediately diagnosable from these logs
+  // alone rather than requiring a fresh investigation each time.
   function collectStoreResult(
     store: StoreName,
     result: PromiseSettledResult<ApiProduct[]>,
@@ -588,12 +635,40 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
     if (result.status !== 'fulfilled') {
       storeErrors.set(store, String(result.reason));
       console.warn(`[Search] ${store} error:`, result.reason);
+      perfLog('search:store-funnel', {
+        store, query: rawQuery, queryUsed: searchQuery,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, error: true,
+      });
       return;
     }
-    const relevant = result.value
-      .filter(p => isFoodProductName(p.name))
-      .filter(p => isRelevantToQuery(searchQuery, p.name));
-    storeMap.set(store, selectStoreProducts(searchQuery, relevant));
+
+    const raw = result.value;
+    const afterFood = raw.filter(p => isFoodProductName(p.name));
+    for (const p of raw) {
+      if (!isFoodProductName(p.name)) {
+        console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: not classified as a food product`);
+      }
+    }
+
+    const relevant = afterFood.filter(p => isRelevantToQuery(searchQuery, p.name));
+    for (const p of afterFood) {
+      if (!isRelevantToQuery(searchQuery, p.name)) {
+        console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: no word overlap with query "${searchQuery}"`);
+      }
+    }
+
+    const selected = selectStoreProducts(searchQuery, relevant);
+    storeMap.set(store, selected);
+
+    perfLog('search:store-funnel', {
+      store,
+      query: rawQuery,
+      queryUsed: searchQuery,
+      rawCount: raw.length,
+      afterFoodFilter: afterFood.length,
+      afterRelevanceFilter: relevant.length,
+      finalCount: selected.length,
+    });
   }
 
   collectStoreResult("Trader Joe's", traderJoesResult, query);
@@ -626,6 +701,21 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
   const response: SearchResponse = {
     products: backfillImagesFromSiblings(scored.map(s => s.product)),
     storeStatuses,
+    ...(correction.level !== 'none' && {
+      correction: {
+        original: correction.original,
+        corrected: correction.correctedDisplay,
+        confidence: correction.confidence,
+        level: correction.level,
+      },
+    }),
   };
+  perfLog('search:aggregate-complete', { ms: Date.now() - aggregateStart, productCount: response.products.length });
+  perfLog('search:request-complete', {
+    query,
+    zipcode,
+    ms: Date.now() - requestStart,
+    productCount: response.products.length,
+  });
   res.json(response);
 }

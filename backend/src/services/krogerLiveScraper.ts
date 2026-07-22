@@ -11,6 +11,7 @@ import type { ApiProduct, StoreLocation } from '../types/index.ts';
 import { toTitleCase, hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
+import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createKrogerLocator } from './locators/krogerLocator.ts';
 
 const KROGER_API = 'https://api.kroger.com/v1';
@@ -18,38 +19,45 @@ const KROGER_API = 'https://api.kroger.com/v1';
 // ── Token cache ───────────────────────────────────────────────────────────────
 let tokenCache: { token: string; expiresAt: number } | null = null;
 
+// Deduped so a racing warm-up and a shopper's first real search — both
+// finding an expired/empty token cache at the same instant — share one
+// OAuth request instead of each firing its own.
 async function getToken(): Promise<string> {
   if (tokenCache && Date.now() < tokenCache.expiresAt) return tokenCache.token;
 
-  const clientId = process.env.KROGER_CLIENT_ID;
-  const clientSecret = process.env.KROGER_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new Error(
-      'Kroger auth failed: KROGER_CLIENT_ID / KROGER_CLIENT_SECRET are not set (check .env.local).',
-    );
-  }
+  return dedupeInFlight('kroger-token', async () => {
+    if (tokenCache && Date.now() < tokenCache.expiresAt) return tokenCache.token;
 
-  const creds = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const clientId = process.env.KROGER_CLIENT_ID;
+    const clientSecret = process.env.KROGER_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw new Error(
+        'Kroger auth failed: KROGER_CLIENT_ID / KROGER_CLIENT_SECRET are not set (check .env.local).',
+      );
+    }
 
-  const res = await fetch(`${KROGER_API}/connect/oauth2/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${creds}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials&scope=product.compact',
-    cache: 'no-store',
+    const creds = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+    const res = await fetch(`${KROGER_API}/connect/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${creds}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials&scope=product.compact',
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Kroger auth failed (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const json = await res.json();
+    const ttl = (json.expires_in ?? 1800) - 60; // 1-min safety buffer
+    tokenCache = { token: json.access_token, expiresAt: Date.now() + ttl * 1000 };
+    return tokenCache.token;
   });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Kroger auth failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-
-  const json = await res.json();
-  const ttl = (json.expires_in ?? 1800) - 60; // 1-min safety buffer
-  tokenCache = { token: json.access_token, expiresAt: Date.now() + ttl * 1000 };
-  return tokenCache.token;
 }
 
 // ── Store locator ─────────────────────────────────────────────────────────────
@@ -201,4 +209,17 @@ export function searchKrogerWithTimeout(
   timeoutMs: number,
 ): Promise<ApiProduct[]> {
   return withTimeout(searchKroger(query, zipcode), timeoutMs, 'Kroger search');
+}
+
+// ── Warm-up ────────────────────────────────────────────────────────────────
+// Pays the OAuth2 token round-trip (and, once a zip is known, the nearest-
+// store lookup) at app-startup time instead of on the first real search —
+// both populate the same module-level caches `searchKroger` already checks,
+// so this is purely additive: skipping it changes nothing except which
+// request pays the cost. Safe to call repeatedly (each piece is itself
+// idempotent once its cache is warm) and never throws — the caller decides
+// whether a failed warm-up is worth logging.
+export async function warmKroger(zip?: string): Promise<void> {
+  await getToken();
+  if (zip) await krogerLocator.findNearestStore(zip);
 }

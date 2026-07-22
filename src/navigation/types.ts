@@ -9,8 +9,14 @@ export type RootStackParamList = {
   Welcome: undefined;
   Tabs: undefined;
   /** Stage 2 — the store comparison hero screen for one semantic product
-   * group (see ProductGroupCard / SearchScreen). */
-  Compare: { group: ProductGroup };
+   * group (see ProductGroupCard / SearchScreen). `allDirectProducts` is the
+   * whole direct-match pool from the search that led here (every variety,
+   * every store) — carried along only so the "Still looking?" refinement
+   * strip (RefinementSection) can offer sibling categories and an
+   * ungrouped per-store view without re-fetching or navigating away.
+   * Optional because a screen could in principle push Compare with just
+   * one group and no broader context; every real call site passes it. */
+  Compare: { group: ProductGroup; allDirectProducts?: ApiProduct[] };
   ProductDetail: { product: ApiProduct; allProducts: ApiProduct[] };
   /**
    * `onSuccess` controls where a successful sign-in/sign-up lands:

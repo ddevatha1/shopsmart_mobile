@@ -1,5 +1,6 @@
 import type { StoreLocation } from '../../types/index.ts';
 import { TtlCache } from '../../utils/ttlCache.ts';
+import { dedupeInFlight } from '../../utils/dedupeInFlight.ts';
 import { withTimeout } from '../../utils/withTimeout.ts';
 import { geocodeAddress, geocodeZip, haversineDistanceMiles } from '../../utils/geocode.ts';
 import { stateNameToCode } from './usStates.ts';
@@ -126,73 +127,87 @@ function citySlugToName(slug: string): string {
   return slug.replace(/-/g, ' ');
 }
 
+// Zip-independent — pre-fills the 24h store-directory cache (a ~660-store
+// sitemap fetch+parse) at app-startup time instead of on whichever search
+// first needs to resolve a Trader Joe's store. Safe to call before any
+// shopper's zip is known, and a no-op once the cache is already warm.
+export async function warmDirectory(): Promise<void> {
+  await loadDirectory();
+}
+
 export function createTraderJoesLocator(): StoreLocator {
   return {
+    // Deduped so a racing warm-up and a shopper's first real search for the
+    // same zip share one resolution instead of each firing their own.
     async findNearestStore(zip: string): Promise<StoreLocation | undefined> {
-      const cached = nearestStoreCache.get(zip);
-      if (cached) return cached;
-
-      const userGeo = await geocodeZip(zip);
-      if (!userGeo?.state) {
-        console.log(`[TraderJoesLocator] Could not determine the state for zip ${zip}.`);
-        return undefined;
-      }
-      const stateCode = stateNameToCode(userGeo.state);
-      if (!stateCode) {
-        console.log(`[TraderJoesLocator] Unrecognized state name "${userGeo.state}" for zip ${zip}.`);
-        return undefined;
-      }
-
-      const directory = await loadDirectory();
-      const inState = directory.filter(e => e.state === stateCode);
-      if (inState.length === 0) {
-        console.log(`[TraderJoesLocator] Trader Joe's has no stores listed in state "${stateCode}" (zip ${zip}).`);
-        return undefined;
-      }
-
-      // Tier 1: exact city-name match — free, and covers the common case.
-      const userCity = (userGeo.city ?? '').trim().toLowerCase();
-      const candidates = inState.filter(e => citySlugToName(e.city) === userCity);
-
-      let selectedEntry: DirectoryEntry | undefined;
-      if (candidates.length === 1) {
-        selectedEntry = candidates[0];
-      } else if (candidates.length > 1) {
-        // Same city, multiple stores — geocode just these few real
-        // addresses (cheap) and pick the nearest.
-        selectedEntry = await pickNearestByAddress(userGeo, candidates);
-      } else {
-        // Tier 2: no exact city match — rank a bounded set of this state's
-        // candidate cities by geocoded distance.
-        const distinctCities = [...new Map(inState.map(e => [e.city, e])).values()].slice(
-          0,
-          MAX_FALLBACK_CANDIDATES,
-        );
-        if (inState.length > MAX_FALLBACK_CANDIDATES) {
-          console.log(
-            `[TraderJoesLocator] ${stateCode} has ${inState.length} stores across more cities than the ` +
-              `${MAX_FALLBACK_CANDIDATES}-candidate cap — ranking only the first ${MAX_FALLBACK_CANDIDATES} ` +
-              `for zip ${zip}. May not select the absolute nearest store in very large states.`,
-          );
-        }
-        selectedEntry = await pickNearestByCity(userGeo, distinctCities, inState);
-      }
-
-      if (!selectedEntry) {
-        console.log(`[TraderJoesLocator] Could not resolve a nearest store for zip ${zip}.`);
-        return undefined;
-      }
-
-      const location = await fetchStoreDetail(selectedEntry);
-      if (!location) return undefined;
-
-      nearestStoreCache.set(zip, location);
-      console.log(
-        `[TraderJoesLocator] Selected storeCode=${selectedEntry.storeCode} "${location.name}" for zip ${zip}`,
-      );
-      return location;
+      return dedupeInFlight(`trader-joes-locate:${zip}`, () => findNearestStoreUncached(zip));
     },
   };
+}
+
+async function findNearestStoreUncached(zip: string): Promise<StoreLocation | undefined> {
+  const cached = nearestStoreCache.get(zip);
+  if (cached) return cached;
+
+  const userGeo = await geocodeZip(zip);
+  if (!userGeo?.state) {
+    console.log(`[TraderJoesLocator] Could not determine the state for zip ${zip}.`);
+    return undefined;
+  }
+  const stateCode = stateNameToCode(userGeo.state);
+  if (!stateCode) {
+    console.log(`[TraderJoesLocator] Unrecognized state name "${userGeo.state}" for zip ${zip}.`);
+    return undefined;
+  }
+
+  const directory = await loadDirectory();
+  const inState = directory.filter(e => e.state === stateCode);
+  if (inState.length === 0) {
+    console.log(`[TraderJoesLocator] Trader Joe's has no stores listed in state "${stateCode}" (zip ${zip}).`);
+    return undefined;
+  }
+
+  // Tier 1: exact city-name match — free, and covers the common case.
+  const userCity = (userGeo.city ?? '').trim().toLowerCase();
+  const candidates = inState.filter(e => citySlugToName(e.city) === userCity);
+
+  let selectedEntry: DirectoryEntry | undefined;
+  if (candidates.length === 1) {
+    selectedEntry = candidates[0];
+  } else if (candidates.length > 1) {
+    // Same city, multiple stores — geocode just these few real
+    // addresses (cheap) and pick the nearest.
+    selectedEntry = await pickNearestByAddress(userGeo, candidates);
+  } else {
+    // Tier 2: no exact city match — rank a bounded set of this state's
+    // candidate cities by geocoded distance.
+    const distinctCities = [...new Map(inState.map(e => [e.city, e])).values()].slice(
+      0,
+      MAX_FALLBACK_CANDIDATES,
+    );
+    if (inState.length > MAX_FALLBACK_CANDIDATES) {
+      console.log(
+        `[TraderJoesLocator] ${stateCode} has ${inState.length} stores across more cities than the ` +
+          `${MAX_FALLBACK_CANDIDATES}-candidate cap — ranking only the first ${MAX_FALLBACK_CANDIDATES} ` +
+          `for zip ${zip}. May not select the absolute nearest store in very large states.`,
+      );
+    }
+    selectedEntry = await pickNearestByCity(userGeo, distinctCities, inState);
+  }
+
+  if (!selectedEntry) {
+    console.log(`[TraderJoesLocator] Could not resolve a nearest store for zip ${zip}.`);
+    return undefined;
+  }
+
+  const location = await fetchStoreDetail(selectedEntry);
+  if (!location) return undefined;
+
+  nearestStoreCache.set(zip, location);
+  console.log(
+    `[TraderJoesLocator] Selected storeCode=${selectedEntry.storeCode} "${location.name}" for zip ${zip}`,
+  );
+  return location;
 }
 
 async function pickNearestByAddress(

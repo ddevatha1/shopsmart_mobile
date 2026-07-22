@@ -3,6 +3,7 @@ import {
   FlatList,
   Keyboard,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,19 +13,34 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { STORE_NAMES, type ApiProduct } from '../models/types';
+import { STORE_NAMES, type ApiProduct, type QueryCorrectionInfo, type StoreName } from '../models/types';
 import { useSearchStore } from '../store/searchStore';
 import { useUserStore } from '../store/userStore';
 import { useCartStore } from '../store/cartStore';
+import { useStoreModeStore } from '../store/storeModeStore';
 import { ProductGroupCard } from '../components/ProductGroupCard';
+import { ProductCard } from '../components/ProductCard';
 import { SearchProgress } from '../components/SearchProgress';
-import { CollapsibleProductSection } from '../components/CollapsibleProductSection';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
+import { RefinementSection } from '../components/search/RefinementSection';
+import { DidYouMeanBanner } from '../components/search/DidYouMeanBanner';
+import { StoreModeBar } from '../components/search/StoreModeBar';
+import { StorePickerSheet } from '../components/search/StorePickerSheet';
+import { ComparisonView } from '../components/comparison/ComparisonView';
 import { validateSearchQuery } from '../utils/searchValidation';
 import { getHomeInsight, type AdvisorInsight } from '../services/advisorService';
-import { buildProductGroups, type ProductGroup } from '../services/comparisonService';
+import {
+  buildProductGroups,
+  buildCombinedGroup,
+  categoryLayerIsMeaningful,
+  countMeaningfulCategories,
+  logCategoryAssignment,
+  shortenSiblingLabel,
+  type ProductGroup,
+} from '../services/comparisonService';
+import { getCurrentCoordinates, type Coordinates } from '../services/locationService';
 import { colors, storeAccents } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
 import { spacing, radius } from '../theme/metrics';
@@ -58,19 +74,32 @@ export function SearchScreen() {
   // (see utils/searchValidation) — set on submit, before any network
   // request, and cleared as soon as the user edits the query again.
   const [invalidQueryMessage, setInvalidQueryMessage] = useState<string | null>(null);
-  // Whether the "tangentially related" tier (avocado-flavored snacks, milk
-  // chocolate, etc.) has been revealed for the current search — resets
-  // whenever the query changes so a new search always starts collapsed.
-  const [showRelated, setShowRelated] = useState(false);
-  // Same idea for products only one store carries — the main grid is
-  // strictly product-specific (a group only shows there when it can
-  // actually be compared across stores), so anything single-store gets set
-  // aside here rather than ever appearing store-specific in the primary grid.
-  const [showSingleStore, setShowSingleStore] = useState(false);
-  // Tracks which query the two toggles above were last reset for. Adjusted
-  // during render (React's documented pattern for resetting state when a
-  // value changes) rather than in a useEffect, avoiding an extra render pass.
-  const [resetForQuery, setResetForQuery] = useState('');
+  // Real device location for the "Still looking?" strip's "Browse
+  // Individual Products" view (per-store distance, same as Stage 2) —
+  // best-effort; a null coordinate just means that view omits distance,
+  // never blocks it.
+  const [coords, setCoords] = useState<Coordinates | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentCoordinates().then((c) => {
+      if (!cancelled) setCoords(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // "Search Within One Store" — an optional mode a shopper explicitly opts
+  // into (see storeModeStore); comparison mode (selectedStore === null) is
+  // always the default. Reuses the exact same search response as
+  // comparison mode (see `products` below) and just filters it down to
+  // one store's listings client-side, rather than re-fetching — so
+  // switching modes is instant and the current query/results are never
+  // lost, satisfying "switching back should preserve the user's current
+  // query whenever possible" for free.
+  const selectedStore = useStoreModeStore((s) => s.selectedStore);
+  const setSelectedStore = useStoreModeStore((s) => s.setSelectedStore);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   // ZIP code is collected once at sign-up (see AuthScreen) and edited only
   // from Profile — the homepage never asks for it.
@@ -91,7 +120,13 @@ export function SearchScreen() {
   // and simply renders nothing while there's no real signal — a
   // brand-new/no-history account sees exactly today's UI.
   const [advisorInsight, setAdvisorInsight] = useState<AdvisorInsight | null>(null);
-  const productsForAdvisor = useSearchStore((s) => s.products);
+  const allSearchProducts = useSearchStore((s) => s.products);
+  // Scoped to the chosen store while in "Search Within One Store" mode —
+  // the Advisor should never nudge a shopper toward a different store's
+  // deal while they've explicitly said they're only shopping at this one.
+  const productsForAdvisor = selectedStore
+    ? allSearchProducts.filter((p) => p.store === selectedStore)
+    : allSearchProducts;
   useEffect(() => {
     let cancelled = false;
     // Always resolved asynchronously (even the "signed out" case), so
@@ -108,7 +143,7 @@ export function SearchScreen() {
     };
   }, [user, productsForAdvisor]);
 
-  const { hasSearched, loading, error, activeQuery, search } = useSearchStore();
+  const { hasSearched, loading, error, activeQuery, correction, search } = useSearchStore();
   const products = useSearchStore((s) => s.products);
   const addToCart = useCartStore((s) => s.addToCart);
 
@@ -124,22 +159,61 @@ export function SearchScreen() {
   // to direct so nothing silently disappears.
   const direct = products.filter((p) => p.matchType !== 'related');
   const related = products.filter((p) => p.matchType === 'related');
-  const groups = useMemo(() => buildProductGroups(direct), [direct]);
+  // "Search Within One Store" mode: a plain, ungrouped browse of everything
+  // this one retailer carries for the query — direct and related both,
+  // same as the pre-comparison-redesign app, since there's no cross-store
+  // semantic grouping to speak of once only one store is in view.
+  const singleStoreProducts = useMemo(
+    () => (selectedStore ? products.filter((p) => p.store === selectedStore) : []),
+    [products, selectedStore],
+  );
+  const groups = useMemo(() => buildProductGroups(direct, activeQuery), [direct, activeQuery]);
   // The primary grid only ever shows categories a shopper can actually
   // compare across stores. A group that only one store carries can't be
   // compared, so it's set aside into its own collapsible section — the only
   // place on this screen where a specific store is ever visible.
   const multiStoreGroups = useMemo(() => groups.filter((g) => g.storeCount > 1), [groups]);
-  const singleStoreListings = useMemo(
-    () => groups.filter((g) => g.storeCount === 1).flatMap((g) => g.listings),
-    [groups],
+  // Everything the main grid can't show — a real semantic category no
+  // other store carries, so it can't be compared. These become "Related
+  // categories" chips in the "Still can't find it?" card instead of a
+  // separate always-collapsed section of their own.
+  const singleStoreGroups = useMemo(() => groups.filter((g) => g.storeCount === 1), [groups]);
+  // Short, chip-sized labels (see comparisonService.shortenSiblingLabel) —
+  // never a full product name — for every single-store group and every
+  // tangential match, relative to the raw search query. Tapping a chip
+  // jumps straight to that category/product; there's no intermediate grid
+  // to open first anymore.
+  const categoryChips = useMemo(
+    () => [
+      ...singleStoreGroups.map((g) => ({
+        key: g.id,
+        label: shortenSiblingLabel(g.name, activeQuery),
+        onPress: () => navigation.navigate('Compare', { group: g, allDirectProducts: direct }),
+      })),
+      ...related.map((p) => ({
+        key: p.id,
+        label: shortenSiblingLabel(p.name, activeQuery, p.brand),
+        onPress: () => navigation.navigate('ProductDetail', { product: p, allProducts: products }),
+      })),
+    ],
+    [singleStoreGroups, related, activeQuery, direct, products, navigation],
   );
 
-  if (activeQuery !== resetForQuery) {
-    setResetForQuery(activeQuery);
-    setShowRelated(false);
-    setShowSingleStore(false);
-  }
+  const runSearch = (term: string) => {
+    setQuery(term);
+    Keyboard.dismiss();
+    search(term);
+  };
+
+  // The "Did you mean" banner's escape hatch — re-runs the search using
+  // exactly what the shopper typed, skipping correction entirely rather
+  // than risking another (possibly different) auto-correction of the same
+  // literal text.
+  const searchOriginal = (original: string) => {
+    setQuery(original);
+    Keyboard.dismiss();
+    search(original, { noCorrect: true });
+  };
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -163,10 +237,98 @@ export function SearchScreen() {
     if (hasSearched && !loading) search(activeQuery);
   };
 
+  const singleStoreMode = selectedStore != null;
+  // The category grid (Stage 1) is only worth the extra click when there
+  // are at least MIN_MEANINGFUL_CATEGORIES real, distinct, non-empty
+  // multi-store categories (see comparisonService.categoryLayerIsMeaningful)
+  // — otherwise route straight into the exact same Product Comparison View
+  // a category normally opens into, just fed every direct-match product
+  // instead of one cluster's listings (buildCombinedGroup). Never applies
+  // in "Search Within One Store" mode, which already skips the category
+  // layer entirely on its own terms.
+  const categoryLayerWorthShowing = categoryLayerIsMeaningful(multiStoreGroups);
+  // TODO(temporary debug logging): remove once the category-skip bug fix
+  // has been verified in the field — see the categoryLayerIsMeaningful
+  // investigation. Logs the raw group count, how many survive the
+  // dedupe/empty/placeholder filter, and which layer this search lands on.
+  useEffect(() => {
+    if (!hasSearched) return;
+    console.log('[CategoryLayer]', {
+      query: activeQuery,
+      rawGroups: groups.length,
+      rawMultiStoreGroups: multiStoreGroups.length,
+      uniqueMeaningfulCategories: countMeaningfulCategories(multiStoreGroups),
+      decision: categoryLayerWorthShowing ? 'show-category-layer' : 'skip-to-comparison',
+    });
+    // Per-store category-assignment funnel — see comparisonService's
+    // logCategoryAssignment for what this catches (the "global search
+    // shows 0 Kroger products in a category the Kroger-only search
+    // clearly has matches for" bug).
+    logCategoryAssignment(direct, groups, activeQuery);
+  }, [hasSearched, activeQuery, groups, multiStoreGroups, categoryLayerWorthShowing, direct]);
+  const bypassToComparison = hasSearched && !loading && error == null
+    && !singleStoreMode && direct.length > 0 && !categoryLayerWorthShowing;
+  const combinedGroup = useMemo(
+    () => (bypassToComparison ? buildCombinedGroup(direct, activeQuery) : null),
+    [bypassToComparison, direct, activeQuery],
+  );
+  const displayedItems: (ProductGroup | ApiProduct)[] = singleStoreMode ? singleStoreProducts : multiStoreGroups;
+
+  if (bypassToComparison && combinedGroup) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: spacing.xxl }}
+          showsVerticalScrollIndicator={false}
+        >
+          <SearchHeader
+            query={query}
+            setQuery={handleQueryChange}
+            invalidQueryMessage={invalidQueryMessage}
+            canSubmit={canSubmit}
+            loading={loading}
+            onSubmit={handleSubmit}
+            hasSearched={hasSearched}
+            error={error}
+            displayedCount={combinedGroup.listings.length}
+            totalProductCount={products.length}
+            recentSearches={recentSearches}
+            advisorInsight={advisorInsight}
+            onSeeProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: products })}
+            onAddToCart={(product) => addToCart(product)}
+            selectedStore={selectedStore}
+            onOpenStorePicker={() => setPickerVisible(true)}
+            onClearStore={() => setSelectedStore(null)}
+            correction={correction}
+            onSearchOriginal={searchOriginal}
+          />
+          <ComparisonView
+            group={combinedGroup}
+            allDirectProducts={direct}
+            onPressProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: products })}
+            onAddToCart={(product) => addToCart(product)}
+            onOpenCategory={(g) => navigation.navigate('Compare', { group: g, allDirectProducts: direct })}
+            onSearchMore={runSearch}
+          />
+        </ScrollView>
+
+        <StorePickerSheet
+          visible={pickerVisible}
+          onClose={() => setPickerVisible(false)}
+          onSelect={(store) => {
+            setSelectedStore(store);
+            setPickerVisible(false);
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <FlatList
-        data={hasSearched && !loading && error == null ? multiStoreGroups : []}
+        data={hasSearched && !loading && error == null ? displayedItems : []}
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={{ gap: spacing.md }}
@@ -182,56 +344,61 @@ export function SearchScreen() {
             onSubmit={handleSubmit}
             hasSearched={hasSearched}
             error={error}
-            displayedCount={multiStoreGroups.length}
+            displayedCount={displayedItems.length}
             totalProductCount={products.length}
             recentSearches={recentSearches}
             advisorInsight={advisorInsight}
             onSeeProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: products })}
             onAddToCart={(product) => addToCart(product)}
+            selectedStore={selectedStore}
+            onOpenStorePicker={() => setPickerVisible(true)}
+            onClearStore={() => setSelectedStore(null)}
+            correction={correction}
+            onSearchOriginal={searchOriginal}
           />
         }
         refreshControl={<RefreshControl refreshing={false} onRefresh={handleRefresh} tintColor={colors.green} />}
-        renderItem={({ item, index }: { item: ProductGroup; index: number }) => (
-          <View style={{ flex: 1 }}>
-            <ProductGroupCard
-              group={item}
-              index={index}
-              onPress={() => navigation.navigate('Compare', { group: item })}
-            />
-          </View>
-        )}
-        ListFooterComponent={
-          hasSearched && !loading && error == null ? (
-            <View style={{ gap: spacing.md }}>
-              {/* Single-store options come first, then related/tangential
-               * matches — a shopper who's just learned a category can't be
-               * compared across stores is more likely to want the
-               * single-store products next than a looser "related" match. */}
-              <CollapsibleProductSection
-                resetKey={activeQuery}
-                products={singleStoreListings}
-                expanded={showSingleStore}
-                onToggle={() => setShowSingleStore((v) => !v)}
-                onPressProduct={(item) => navigation.navigate('ProductDetail', { product: item, allProducts: products })}
-                onAddToCart={(item) => addToCart(item)}
-                sectionLabel="Single-Store Options"
-                collapsedLabel={`Show ${singleStoreListings.length} product${singleStoreListings.length !== 1 ? 's' : ''} available at only one store`}
-                expandedLabel="Hide single-store options"
-              />
-              <CollapsibleProductSection
-                resetKey={activeQuery}
-                products={related}
-                expanded={showRelated}
-                onToggle={() => setShowRelated((v) => !v)}
-                onPressProduct={(item) => navigation.navigate('ProductDetail', { product: item, allProducts: products })}
-                onAddToCart={(item) => addToCart(item)}
-                sectionLabel={`Related to "${activeQuery}"`}
-                collapsedLabel={`Show ${related.length} more product${related.length !== 1 ? 's' : ''} containing "${activeQuery}"`}
-                expandedLabel="Hide related products"
+        renderItem={({ item, index }) =>
+          singleStoreMode ? (
+            <View style={{ flex: 1 }}>
+              <ProductCard
+                product={item as ApiProduct}
+                index={index}
+                onPress={() => navigation.navigate('ProductDetail', { product: item as ApiProduct, allProducts: products })}
+                onAddToCart={() => addToCart(item as ApiProduct)}
               />
             </View>
+          ) : (
+            <View style={{ flex: 1 }}>
+              <ProductGroupCard
+                group={item as ProductGroup}
+                index={index}
+                onPress={() => navigation.navigate('Compare', { group: item as ProductGroup, allDirectProducts: direct })}
+              />
+            </View>
+          )
+        }
+        ListFooterComponent={
+          hasSearched && !loading && error == null && !singleStoreMode ? (
+            <RefinementSection
+              userCoords={coords}
+              categoryChips={categoryChips}
+              browseProducts={direct}
+              onPressProduct={(item) => navigation.navigate('ProductDetail', { product: item, allProducts: products })}
+              onAddToCart={(item) => addToCart(item)}
+              onSearchMore={runSearch}
+            />
           ) : null
         }
+      />
+
+      <StorePickerSheet
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onSelect={(store) => {
+          setSelectedStore(store);
+          setPickerVisible(false);
+        }}
       />
     </SafeAreaView>
   );
@@ -258,12 +425,18 @@ interface SearchHeaderProps {
   advisorInsight: AdvisorInsight | null;
   onSeeProduct: (product: ApiProduct) => void;
   onAddToCart: (product: ApiProduct) => void;
+  selectedStore: StoreName | null;
+  onOpenStorePicker: () => void;
+  onClearStore: () => void;
+  correction: QueryCorrectionInfo | null;
+  onSearchOriginal: (original: string) => void;
 }
 
 function SearchHeader({
   query, setQuery, invalidQueryMessage, canSubmit, loading, onSubmit,
   hasSearched, error, displayedCount, totalProductCount, recentSearches, advisorInsight,
-  onSeeProduct, onAddToCart,
+  onSeeProduct, onAddToCart, selectedStore, onOpenStorePicker, onClearStore,
+  correction, onSearchOriginal,
 }: SearchHeaderProps) {
   const chipTerms = recentSearches.length > 0 ? recentSearches : POPULAR;
   const chipLabel = recentSearches.length > 0 ? 'Recent:' : 'Popular:';
@@ -288,8 +461,12 @@ function SearchHeader({
             onPress={onSubmit}
             disabled={!canSubmit || loading}
           >
-            <Text style={styles.submitButtonText}>{loading ? 'Searching…' : 'Search All Stores'}</Text>
+            <Text style={styles.submitButtonText}>
+              {loading ? 'Searching…' : selectedStore ? `Search ${selectedStore}` : 'Search All Stores'}
+            </Text>
           </AnimatedPressable>
+
+          <StoreModeBar selectedStore={selectedStore} onOpenPicker={onOpenStorePicker} onClear={onClearStore} />
 
           {invalidQueryMessage && (
             <Text style={styles.invalidQueryText}>{invalidQueryMessage}</Text>
@@ -318,16 +495,22 @@ function SearchHeader({
       )}
 
       <View style={styles.body}>
+        {hasSearched && !loading && error == null && correction && (
+          <DidYouMeanBanner correction={correction} onSearchOriginal={onSearchOriginal} />
+        )}
+
         {!hasSearched && (
           <FadeInState>
             <View style={styles.emptyState}>
               <View style={styles.dotsRow}>
-                {STORE_NAMES.map((s) => (
+                {(selectedStore ? [selectedStore] : STORE_NAMES).map((s) => (
                   <View key={s} style={[styles.storeDot, { backgroundColor: storeAccents[s].dot }]} />
                 ))}
               </View>
               <Text style={styles.emptyText}>
-                Enter a product above to compare prices across all four stores near you.
+                {selectedStore
+                  ? `Enter a product above to browse ${selectedStore}'s inventory.`
+                  : 'Enter a product above to compare prices across all four stores near you.'}
               </Text>
             </View>
           </FadeInState>
@@ -339,11 +522,15 @@ function SearchHeader({
         {hasSearched && !loading && error == null && displayedCount === 0 && (
           <FadeInState>
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No comparable products found</Text>
+              <Text style={styles.emptyTitle}>
+                {selectedStore ? `No products found at ${selectedStore}` : 'No comparable products found'}
+              </Text>
               <Text style={styles.emptyText}>
                 {totalProductCount === 0
                   ? 'Try a different search term.'
-                  : 'Check single-store options and related products below.'}
+                  : selectedStore
+                    ? 'Try a different search term, or compare across stores instead.'
+                    : 'Check the refinement options below.'}
               </Text>
             </View>
           </FadeInState>

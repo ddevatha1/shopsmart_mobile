@@ -34,6 +34,7 @@ import type { ApiProduct } from '../types/index.ts';
 import { toTitleCase, hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
+import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createSproutsLocator } from './locators/sproutsLocator.ts';
 
 const SESSION_PATH = path.join(process.cwd(), '.sprouts-session.json');
@@ -70,16 +71,24 @@ async function establishSproutsSession(): Promise<string> {
   return sidCookie.split(';')[0];
 }
 
+// Deduped so a racing warm-up and a shopper's first real search — both
+// finding no valid session at the same instant — share one homepage fetch
+// instead of each establishing their own.
 async function getSproutsSessionCookie(forceRefresh = false): Promise<string> {
   if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
     return sessionCache.cookie;
   }
 
-  console.log('[Sprouts] Establishing a fresh anonymous session...');
-  const cookie = await establishSproutsSession();
-  sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
-  console.log('[Sprouts] Session established.');
-  return cookie;
+  return dedupeInFlight('sprouts-session', async () => {
+    if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+      return sessionCache.cookie;
+    }
+    console.log('[Sprouts] Establishing a fresh anonymous session...');
+    const cookie = await establishSproutsSession();
+    sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
+    console.log('[Sprouts] Session established.');
+    return cookie;
+  });
 }
 
 // ── Store locator ─────────────────────────────────────────────────────────────
@@ -395,6 +404,15 @@ export function searchSproutsWithTimeout(
   timeoutMs: number,
 ): Promise<ApiProduct[]> {
   return withTimeout(searchSprouts(query, postalCode), timeoutMs, 'Sprouts scraper');
+}
+
+// ── Warm-up ────────────────────────────────────────────────────────────────
+// Establishes the anonymous session cookie (and, once a zip is known, the
+// nearest-store lookup) at app-startup time instead of on the first real
+// search — see warmKroger in krogerLiveScraper.ts for the same pattern.
+export async function warmSprouts(zip?: string): Promise<void> {
+  await getSproutsSessionCookie();
+  if (zip) await sproutsLocator.findNearestStore(zip);
 }
 
 // ── Single-product image fetch ─────────────────────────────────────────────────

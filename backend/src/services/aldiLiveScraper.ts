@@ -33,6 +33,7 @@ import type { ApiProduct, StoreLocation } from '../types/index.ts';
 import { toTitleCase, hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
+import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createAldiLocator } from './locators/aldiLocator.ts';
 
 const ALDI_HOME_URL = 'https://www.aldi.us/';
@@ -68,16 +69,24 @@ async function establishAldiSession(): Promise<string> {
   return sidCookie.split(';')[0];
 }
 
+// Deduped so a racing warm-up and a shopper's first real search — both
+// finding no valid session at the same instant — share one homepage fetch
+// instead of each establishing their own.
 async function getAldiSessionCookie(forceRefresh = false): Promise<string> {
   if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
     return sessionCache.cookie;
   }
 
-  console.log('[Aldi] Establishing a fresh anonymous session...');
-  const cookie = await establishAldiSession();
-  sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
-  console.log('[Aldi] Session established.');
-  return cookie;
+  return dedupeInFlight('aldi-session', async () => {
+    if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+      return sessionCache.cookie;
+    }
+    console.log('[Aldi] Establishing a fresh anonymous session...');
+    const cookie = await establishAldiSession();
+    sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
+    console.log('[Aldi] Session established.');
+    return cookie;
+  });
 }
 
 // ── Store locator ─────────────────────────────────────────────────────────────
@@ -295,4 +304,13 @@ export function searchAldiWithTimeout(
   timeoutMs: number,
 ): Promise<ApiProduct[]> {
   return withTimeout(searchAldi(query, postalCode), timeoutMs, 'Aldi search');
+}
+
+// ── Warm-up ────────────────────────────────────────────────────────────────
+// Establishes the anonymous session cookie (and, once a zip is known, the
+// nearest-store lookup) at app-startup time instead of on the first real
+// search — see warmKroger in krogerLiveScraper.ts for the same pattern.
+export async function warmAldi(zip?: string): Promise<void> {
+  await getAldiSessionCookie();
+  if (zip) await aldiLocator.findNearestStore(zip);
 }

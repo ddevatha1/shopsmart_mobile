@@ -1,5 +1,6 @@
 import type { StoreLocation } from '../../types/index.ts';
 import { TtlCache } from '../../utils/ttlCache.ts';
+import { dedupeInFlight } from '../../utils/dedupeInFlight.ts';
 import { withTimeout } from '../../utils/withTimeout.ts';
 import type { StoreLocator } from './types.ts';
 
@@ -75,44 +76,51 @@ export function createSproutsLocator(getSessionCookie: () => Promise<string>): S
       const cached = locationCache.get(zip);
       if (cached) return cached;
 
-      const cookie = await getSessionCookie();
+      // Deduped so a racing warm-up and a shopper's first real search for
+      // the same zip share one lookup instead of each firing their own.
+      return dedupeInFlight(`sprouts-locate:${zip}`, async () => {
+        const cachedInner = locationCache.get(zip);
+        if (cachedInner) return cachedInner;
 
-      const url = new URL(SPROUTS_SHOPS_URL);
-      url.searchParams.set('postal_code', zip);
-      const res = await fetch(url.toString(), {
-        headers: { accept: 'application/json', cookie, 'x-ic-view-layer': 'true' },
+        const cookie = await getSessionCookie();
+
+        const url = new URL(SPROUTS_SHOPS_URL);
+        url.searchParams.set('postal_code', zip);
+        const res = await fetch(url.toString(), {
+          headers: { accept: 'application/json', cookie, 'x-ic-view-layer': 'true' },
+        });
+        if (!res.ok) {
+          console.log(`[SproutsLocator] Shops lookup failed for zip ${zip}: HTTP ${res.status}`);
+          return undefined;
+        }
+
+        const json = (await res.json()) as SproutsShopsResponse;
+        const nearest = json.shops?.find(s => s.fulfillment_option === 'instore');
+        const addr = nearest?.address;
+        if (!nearest || !addr?.street_address || !addr.city || !addr.state || !addr.postal_code) {
+          console.log(`[SproutsLocator] No in-store Sprouts found near zip ${zip}.`);
+          return undefined;
+        }
+
+        const coords = nearest.location_code ? await fetchPreciseCoords(nearest.location_code) : undefined;
+
+        const location: StoreLocation = {
+          name: nearest.location_name?.trim() || `Sprouts - ${addr.city}`,
+          storeId: nearest.id,
+          address: addr.street_address,
+          city: addr.city,
+          state: addr.state,
+          zip: addr.postal_code,
+          latitude: coords?.latitude,
+          longitude: coords?.longitude,
+        };
+
+        locationCache.set(zip, location);
+        console.log(
+          `[SproutsLocator] Selected shopId=${nearest.id} storeNumber=${nearest.location_code ?? '?'} "${location.name}" for zip ${zip}`,
+        );
+        return location;
       });
-      if (!res.ok) {
-        console.log(`[SproutsLocator] Shops lookup failed for zip ${zip}: HTTP ${res.status}`);
-        return undefined;
-      }
-
-      const json = (await res.json()) as SproutsShopsResponse;
-      const nearest = json.shops?.find(s => s.fulfillment_option === 'instore');
-      const addr = nearest?.address;
-      if (!nearest || !addr?.street_address || !addr.city || !addr.state || !addr.postal_code) {
-        console.log(`[SproutsLocator] No in-store Sprouts found near zip ${zip}.`);
-        return undefined;
-      }
-
-      const coords = nearest.location_code ? await fetchPreciseCoords(nearest.location_code) : undefined;
-
-      const location: StoreLocation = {
-        name: nearest.location_name?.trim() || `Sprouts - ${addr.city}`,
-        storeId: nearest.id,
-        address: addr.street_address,
-        city: addr.city,
-        state: addr.state,
-        zip: addr.postal_code,
-        latitude: coords?.latitude,
-        longitude: coords?.longitude,
-      };
-
-      locationCache.set(zip, location);
-      console.log(
-        `[SproutsLocator] Selected shopId=${nearest.id} storeNumber=${nearest.location_code ?? '?'} "${location.name}" for zip ${zip}`,
-      );
-      return location;
     },
   };
 }

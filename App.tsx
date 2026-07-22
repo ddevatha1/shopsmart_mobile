@@ -15,15 +15,20 @@ import {
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { useCartStore } from './src/store/cartStore';
 import { useUserStore } from './src/store/userStore';
+import { useWarmupStore } from './src/store/warmupStore';
+import { perfLog } from './src/utils/perfLog';
 
 // Keep the native (OS-level) splash visible until our fonts are ready —
 // avoids a flash of un-styled/system-font text before our custom animated
 // SplashScreen (src/screens/SplashScreen.tsx) takes over.
 SplashScreenNative.preventAutoHideAsync();
 
+perfLog('app:start');
+
 export default function App() {
   const hydrateCart = useCartStore((s) => s.hydrate);
   const hydrateUser = useUserStore((s) => s.hydrate);
+  const warmup = useWarmupStore((s) => s.warmup);
 
   const [fontsLoaded] = useFonts({
     Manrope_200ExtraLight,
@@ -40,8 +45,19 @@ export default function App() {
     // user does — otherwise it would momentarily load with no owner and
     // come up empty before the correct (or newly-registered) account's
     // cart is known.
-    hydrateUser().then(hydrateCart);
-  }, [hydrateUser, hydrateCart]);
+    hydrateUser().then(() => {
+      hydrateCart();
+      // Background warm-up (backend session/store-location init) — fired
+      // once per app launch, deliberately not awaited: the homepage and
+      // splash-to-Tabs transition must never wait on this. Uses the
+      // shopper's saved zip if they've signed in before, so the
+      // zip-specific nearest-store lookups warm up too, not just the
+      // zip-independent session/token pieces. See warmupStore.ts for the
+      // dedup guard that keeps this safe to call again on remount.
+      const zipcode = useUserStore.getState().user?.zipcode;
+      warmup(zipcode);
+    });
+  }, [hydrateUser, hydrateCart, warmup]);
 
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded) {

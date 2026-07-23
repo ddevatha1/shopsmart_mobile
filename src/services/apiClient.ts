@@ -77,6 +77,40 @@ function isValidTripPlan(value: unknown): value is TripPlan {
   return true;
 }
 
+/** Guards against the same class of problem `isValidTripPlan` guards
+ * against below — a malformed/partial `/api/search` response (stale
+ * process, proxy error page, backend bug) trusted blindly via a cast would
+ * let `undefined` prices/names/stores flow straight into product cards.
+ * Only checks the required fields on `ApiProduct`/`StoreStatus` (per
+ * models/types.ts) — optional fields are intentionally left unchecked. */
+function isValidApiProduct(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === 'string' &&
+    typeof v.name === 'string' &&
+    typeof v.brand === 'string' &&
+    isFiniteNumber(v.price) &&
+    isFiniteNumber(v.rating) &&
+    typeof v.size === 'string' &&
+    typeof v.store === 'string'
+  );
+}
+
+function isValidStoreStatus(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.store === 'string' && typeof v.status === 'string';
+}
+
+function isValidSearchResponse(value: unknown): value is SearchResponse {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  if (!Array.isArray(v.products) || !v.products.every(isValidApiProduct)) return false;
+  if (!Array.isArray(v.storeStatuses) || !v.storeStatuses.every(isValidStoreStatus)) return false;
+  return true;
+}
+
 export interface WarmupStoreResult {
   store: string;
   ok: boolean;
@@ -132,7 +166,12 @@ export class ApiClient {
       throw new ApiError(body?.error ?? `Server returned ${res.status}`);
     }
 
-    return body as SearchResponse;
+    if (!isValidSearchResponse(body)) {
+      console.error('[apiClient] /api/search returned a malformed SearchResponse:', JSON.stringify(body));
+      throw new ApiError('The search service returned an unexpected response. Please try again.');
+    }
+
+    return body;
   }
 
   /** Fallback product photo lookup — see backend/src/routes/productImage.ts

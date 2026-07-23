@@ -24,6 +24,11 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const response = await performSearch(rawQuery, zipcode, { noCorrect: body.noCorrect });
-  res.json(response);
+  try {
+    const response = await performSearch(rawQuery, zipcode, { noCorrect: body.noCorrect });
+    res.json(response);
+  } catch (err) {
+    console.warn('[Search] search failed:', err);
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Could not complete the search.' });
+  }
 }

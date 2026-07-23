@@ -11,6 +11,16 @@ export const spacing = {
   xxxl: 40,
 };
 
+/** The app's layout is designed for phone-width viewports only (no
+ * screen anywhere branches on `Platform.OS === 'web'` or checks window
+ * width). On a wide browser window this app.json-listed web target
+ * would otherwise stretch every screen full-bleed — most visibly a
+ * product photo whose box sizes off an aspectRatio, ballooning to
+ * several screen-heights tall. Centering every screen's content in a
+ * capped column keeps native (already narrower than this) unaffected
+ * while giving web/tablet a sane, non-stretched layout. */
+export const webContentMaxWidth = 520;
+
 /** Consistent corner-radius scale. */
 export const radius = {
   sm: 10,

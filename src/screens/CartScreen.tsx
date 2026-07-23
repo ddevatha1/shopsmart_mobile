@@ -94,8 +94,11 @@ export function CartScreen() {
       .then((trip) => {
         if (!cancelled) setTripPreview(trip);
       })
-      .catch(() => {
-        if (!cancelled) setTripPreview(null);
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn('[CartScreen] trip preview failed:', err);
+          setTripPreview(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -227,6 +230,7 @@ function CartRow({ item, onUpdateQty, onRemove }: {
             scaleTo={0.88}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             onPress={() => (item.quantity > 1 ? onUpdateQty(item.product.id, item.quantity - 1) : onRemove(item.product.id))}
+            accessibilityLabel={item.quantity > 1 ? 'Decrease quantity' : `Remove ${item.product.name}`}
           >
             <Ionicons name="remove" size={13} color={`${colors.charcoal}b3`} />
           </AnimatedPressable>
@@ -236,6 +240,7 @@ function CartRow({ item, onUpdateQty, onRemove }: {
             scaleTo={0.88}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             onPress={() => onUpdateQty(item.product.id, item.quantity + 1)}
+            accessibilityLabel="Increase quantity"
           >
             <Ionicons name="add" size={13} color={`${colors.charcoal}b3`} />
           </AnimatedPressable>
@@ -247,6 +252,7 @@ function CartRow({ item, onUpdateQty, onRemove }: {
           onPress={() => onRemove(item.product.id)}
           scaleTo={0.85}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityLabel={`Remove ${item.product.name}`}
         >
           <Ionicons name="trash-outline" size={17} color={`${colors.charcoal}4d`} />
         </AnimatedPressable>

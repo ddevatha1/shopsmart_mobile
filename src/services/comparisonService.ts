@@ -1075,12 +1075,6 @@ export function getUnitPrice(product: ApiProduct, groupName: string): UnitPrice 
     unitPrice = { value, label, dimension: 'volume' };
   }
 
-  console.log(
-    `[Savings] getUnitPrice "${product.name}" (${product.store}): price=$${product.price}, `
-    + `size="${product.size}" -> amount=${parsed.amount} ${parsed.dimension}, `
-    + `baseUnitValue=$${value.toFixed(4)}, label="${unitPrice.label}"`,
-  );
-
   return unitPrice;
 }
 

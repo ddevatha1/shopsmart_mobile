@@ -89,9 +89,13 @@ export function PlannerScreen() {
     setResolvedItems(finalItems);
 
     if (user && rememberChoices) {
-      await Promise.all(
-        Object.entries(answers).map(([taxonomyEntryId, subtypeId]) => setPreference(user.email, taxonomyEntryId, subtypeId)),
-      );
+      try {
+        await Promise.all(
+          Object.entries(answers).map(([taxonomyEntryId, subtypeId]) => setPreference(user.email, taxonomyEntryId, subtypeId)),
+        );
+      } catch (err) {
+        console.warn('[PlannerScreen] failed to remember ambiguity choices:', err);
+      }
     }
     for (const [taxonomyEntryId, subtypeId] of Object.entries(answers)) {
       perfLog('planner:ambiguity-resolved', { taxonomyEntryId, subtypeId, remembered: rememberChoices });

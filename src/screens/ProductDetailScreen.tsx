@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -35,6 +35,12 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
   const addToCart = useCartStore((s) => s.addToCart);
+  const addedFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (addedFeedbackTimeoutRef.current) clearTimeout(addedFeedbackTimeoutRef.current);
+    };
+  }, []);
 
   const storeLat = product.location?.latitude;
   const storeLng = product.location?.longitude;
@@ -102,7 +108,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const handleAddToCart = () => {
     addToCart(product, qty);
     setAddedFeedback(true);
-    setTimeout(() => setAddedFeedback(false), 2000);
+    if (addedFeedbackTimeoutRef.current) clearTimeout(addedFeedbackTimeoutRef.current);
+    addedFeedbackTimeoutRef.current = setTimeout(() => setAddedFeedback(false), 2000);
   };
 
   return (
@@ -117,6 +124,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           style={styles.closeButton}
           scaleTo={0.9}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Close"
         >
           <Ionicons name="close" size={18} color={colors.charcoal} />
         </AnimatedPressable>

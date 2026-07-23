@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["node_modules", "backend"]
+  "exclude": ["node_modules", "backend", "**/__tests__/**"]
 }

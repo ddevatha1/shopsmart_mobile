@@ -23,6 +23,11 @@ interface Props {
    * buttons) that need to stay visually small but still meet mobile
    * touch-target guidelines. */
   hitSlop?: PressableProps['hitSlop'];
+  /** Required for icon-only buttons (no visible text) so screen readers
+   * announce something other than silence — most call sites are fine
+   * without it (their visible text label is what gets announced). */
+  accessibilityLabel?: PressableProps['accessibilityLabel'];
+  accessibilityRole?: PressableProps['accessibilityRole'];
 }
 
 /**
@@ -37,7 +42,10 @@ interface Props {
  * rather than mechanical — the one deliberate asymmetry in the motion
  * system, shared by every button/card in the app via this component.
  */
-export function AnimatedPressable({ onPress, disabled, style, children, scaleTo = 0.96, liftOnPress = false, hitSlop }: Props) {
+export function AnimatedPressable({
+  onPress, disabled, style, children, scaleTo = 0.96, liftOnPress = false, hitSlop,
+  accessibilityLabel, accessibilityRole = 'button',
+}: Props) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => {
     if (!liftOnPress) return { transform: [{ scale: scale.value }] };
@@ -59,6 +67,8 @@ export function AnimatedPressable({ onPress, disabled, style, children, scaleTo 
       onPress={onPress}
       disabled={disabled}
       hitSlop={hitSlop}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
       onPressIn={() => { scale.value = withTiming(scaleTo, { duration: duration.micro }); }}
       onPressOut={() => { scale.value = withSpring(1, spring); }}
       style={[style, animatedStyle, disabled ? { opacity: 0.5 } : null]}

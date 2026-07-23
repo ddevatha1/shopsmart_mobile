@@ -74,13 +74,22 @@ export function SplashScreen({ navigation }: Props) {
     const start = Date.now();
 
     async function proceedWhenReady() {
-      // Poll for hydration in small steps rather than a fixed timer, so
-      // slow storage reads never cut the animation off mid-flight, but
-      // typical fast reads don't extend it past the minimum either.
-      while (!useUserStore.getState().hydrated) {
-        await new Promise((r) => setTimeout(r, 50));
-        if (cancelled) return;
+      // Waits for hydration via the store's own subscription rather than
+      // polling on a timer, so slow storage reads never cut the animation
+      // off mid-flight, but typical fast reads don't extend it past the
+      // minimum either — and the UI thread isn't woken every 50ms for no
+      // reason while waiting.
+      if (!useUserStore.getState().hydrated) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useUserStore.subscribe((state) => {
+            if (state.hydrated) {
+              unsubscribe();
+              resolve();
+            }
+          });
+        });
       }
+      if (cancelled) return;
       const elapsed = Date.now() - start;
       const remaining = Math.max(0, MIN_DURATION_MS - elapsed);
       await new Promise((r) => setTimeout(r, remaining));

@@ -26,12 +26,41 @@ interface Props {
  * productImageService) — a second card for the same product name resolves
  * instantly from cache.
  */
+function productIdentityKey(product: Props['product']): string {
+  return `${product.name}|${product.image_url ?? ''}|${product.store ?? ''}|${product.storeProductUrl ?? ''}`;
+}
+
 export function ProductImage({ product, style, contentFit = 'contain', iconSize }: Props) {
   const [uri, setUri] = useState<string | null>(product.image_url ?? null);
   const [showIcon, setShowIcon] = useState(false);
   // A ref, not state — starting the lookup doesn't need to trigger a
   // re-render itself, only its eventual result (setUri/setShowIcon) does.
   const fallbackTriedRef = useRef(false);
+
+  // Re-syncs local state whenever this instance is handed a *different*
+  // product (e.g. the Compare screen's single "Best Value" slot swapping
+  // which product it renders after a filter/sort change) — without this,
+  // `uri`/`showIcon` would keep reflecting whichever product first mounted
+  // this component, showing a stale photo even though the new product's
+  // own image_url/lookup would resolve correctly. Adjusting state during
+  // render (rather than in an effect) is React's recommended pattern for
+  // "reset state when a prop changes" — see react.dev's "Adjusting state
+  // when a prop changes" — since it avoids an extra render showing the
+  // stale photo before an effect gets a chance to run.
+  const key = productIdentityKey(product);
+  const [renderedKey, setRenderedKey] = useState(key);
+  if (key !== renderedKey) {
+    setRenderedKey(key);
+    setUri(product.image_url ?? null);
+    setShowIcon(false);
+  }
+
+  // Refs can't be written during render, so the ref half of the same reset
+  // lives here — declared before the lookup effect below so it always runs
+  // first within the same commit and the lookup effect sees the reset value.
+  useEffect(() => {
+    fallbackTriedRef.current = false;
+  }, [key]);
 
   useEffect(() => {
     if (uri || fallbackTriedRef.current) return;
@@ -67,6 +96,15 @@ export function ProductImage({ product, style, contentFit = 'contain', iconSize 
 
   return (
     <Image
+      // expo-image's web implementation crossfades by stacking the outgoing
+      // and incoming image as two layers; reusing the same element across a
+      // `uri` change left the outgoing (wrong-product) layer stuck on top
+      // instead of fading out (visible as a stale/wrong photo even though
+      // the correct image had already loaded — see productIdentityKey's own
+      // comment above for when this happens). Keying by `uri` forces a full
+      // remount instead of an in-place update, sidestepping that stuck
+      // layer entirely.
+      key={uri}
       source={{ uri }}
       // Callers pass plain layout styles (flex, StyleSheet.absoluteFill)
       // valid for both View and Image; only ImageStyle's narrower

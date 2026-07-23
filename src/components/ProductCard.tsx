@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -50,6 +50,12 @@ export function ProductCard({
   product, onPress, onAddToCart, index = 0, unitPriceLabel, bestValue, savingsLabel,
 }: Props) {
   const [cartFeedback, setCartFeedback] = useState(false);
+  const cartFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (cartFeedbackTimeoutRef.current) clearTimeout(cartFeedbackTimeoutRef.current);
+    };
+  }, []);
   const accent = storeAccents[product.store];
   const isOrganic = isOrganicProduct(product);
 
@@ -75,7 +81,8 @@ export function ProductCard({
       withTiming(1.25, { duration: duration.micro, easing: easing.emphasized }),
       withTiming(1, { duration: duration.base, easing: easing.standard }),
     );
-    setTimeout(() => setCartFeedback(false), 1500);
+    if (cartFeedbackTimeoutRef.current) clearTimeout(cartFeedbackTimeoutRef.current);
+    cartFeedbackTimeoutRef.current = setTimeout(() => setCartFeedback(false), 1500);
   };
 
   return (
@@ -103,6 +110,8 @@ export function ProductCard({
             onPress={handleAddToCart}
             style={[styles.addButton, { backgroundColor: cartFeedback ? colors.mint : colors.green }]}
             scaleTo={0.85}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel={cartFeedback ? 'Added to cart' : `Add ${product.name} to cart`}
           >
             <Animated.View style={confirmStyle}>
               <Ionicons name={cartFeedback ? 'checkmark' : 'add'} size={16} color={cartFeedback ? colors.green : colors.white} />
@@ -120,7 +129,7 @@ export function ProductCard({
         <View style={styles.body}>
           <View style={styles.priceRow}>
             <View style={styles.priceTag}>
-              <Text style={styles.priceText}>${product.price.toFixed(2)}</Text>
+              <Text style={styles.priceText}>{typeof product.price === 'number' ? `$${product.price.toFixed(2)}` : '—'}</Text>
             </View>
             {product.originalPrice != null && (
               <Text style={styles.originalPrice}>${product.originalPrice.toFixed(2)}</Text>
@@ -141,9 +150,11 @@ export function ProductCard({
             </View>
           )}
 
-          <Text style={styles.brand} numberOfLines={1}>
-            {product.brand.toUpperCase()}
-          </Text>
+          {!!product.brand && (
+            <Text style={styles.brand} numberOfLines={1}>
+              {product.brand.toUpperCase()}
+            </Text>
+          )}
           <Text style={styles.name} numberOfLines={2}>
             {product.name}
           </Text>

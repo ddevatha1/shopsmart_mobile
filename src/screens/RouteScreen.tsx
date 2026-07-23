@@ -63,24 +63,6 @@ export function RouteScreen({ navigation }: Props) {
   const user = useUserStore((s) => s.user);
   const zipcode = activeZip || user?.zipcode || '';
 
-  // TEMPORARY DEBUG LOGGING — traces every cart item's StoreLocation right
-  // before route planning, to catch a missing/incomplete location at its
-  // source instead of guessing from a downstream crash. Remove once the
-  // routing feature has been verified stable in the field.
-  useEffect(() => {
-    if (items.length === 0) return;
-    console.log(`[RouteDebug] ${items.length} cart item(s) going into route planning:`);
-    items.forEach((item) => {
-      const loc = item.product.location;
-      console.log(
-        `[RouteDebug]   product="${item.product.name}" retailer=${item.product.store} ` +
-          `store=${loc?.name ?? 'MISSING'} ` +
-          `address=${loc ? `${loc.address}, ${loc.city}, ${loc.state} ${loc.zip}` : 'MISSING'} ` +
-          `lat=${loc?.latitude ?? 'undefined'} lng=${loc?.longitude ?? 'undefined'}`,
-      );
-    });
-  }, [items]);
-
   const { groups, itemsWithoutLocation } = useMemo(() => groupCartByStore(items), [items]);
   // Remounts TripLoader (and so its internal loading/error/trip state)
   // whenever the actual set of stops or the origin changes, instead of an

@@ -82,7 +82,15 @@ export function OnboardingScreen({ navigation }: Props) {
       goToWelcome();
       return;
     }
-    listRef.current?.scrollToOffset({ offset: (index + 1) * width, animated: true });
+    const nextIndex = index + 1;
+    // Set eagerly rather than waiting on onMomentumScrollEnd — react-native-web
+    // doesn't reliably fire that event for a programmatic scrollToOffset, which
+    // left `index` (and so the dots + isLast/"Get Started") permanently stuck
+    // after the first tap on web. Native swipe gestures still update `index`
+    // via onMomentumScrollEnd below; this just keeps the button-driven path
+    // from depending on it too.
+    setIndex(nextIndex);
+    listRef.current?.scrollToOffset({ offset: nextIndex * width, animated: true });
   }
 
   function onMomentumScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {

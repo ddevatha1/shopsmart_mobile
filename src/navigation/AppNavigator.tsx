@@ -19,6 +19,7 @@ import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { cartItemCount, useCartStore } from '../store/cartStore';
 import { colors } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
+import { webContentMaxWidth } from '../theme/metrics';
 import type { RootStackParamList, TabParamList } from './types';
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -114,7 +115,13 @@ const tabIconStyles = StyleSheet.create({
 export function AppNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
-      <Stack.Navigator initialRouteName="Splash" screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName="Splash"
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { width: '100%', maxWidth: webContentMaxWidth, alignSelf: 'center' },
+        }}
+      >
         <Stack.Screen name="Splash" component={SplashScreen} options={{ animation: 'none' }} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ animation: 'fade' }} />

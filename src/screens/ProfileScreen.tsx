@@ -78,7 +78,13 @@ function SignedInProfile({ user }: { user: User }) {
 
   const [plannerPrefs, setPlannerPrefs] = useState<PlannerPreferences>({});
   useEffect(() => {
-    getAllPreferences(user.email).then(setPlannerPrefs);
+    let cancelled = false;
+    getAllPreferences(user.email).then((prefs) => {
+      if (!cancelled) setPlannerPrefs(prefs);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user.email]);
 
   const handleClearPreference = async (taxonomyEntryId: string) => {

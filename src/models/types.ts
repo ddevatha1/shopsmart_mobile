@@ -137,3 +137,79 @@ export interface StoreGroup {
   location: StoreLocation;
   items: CartItem[];
 }
+
+// ── Smart Shopping Planner — mirrors shopsmart_web/src/types/index.ts ──────
+
+export interface PlannerListItem {
+  id: string;
+  rawText: string;
+  taxonomyEntryId?: string;
+  subtypeId?: string | null;
+}
+
+export interface AmbiguityOption {
+  subtypeId: string;
+  label: string;
+}
+
+export interface AmbiguityPrompt {
+  taxonomyEntryId: string;
+  itemLabel: string;
+  listItemIds: string[];
+  options: AmbiguityOption[];
+  rememberedDefault?: string;
+}
+
+/** Relative weights the optimizer balances when scoring the "Balanced"
+ * candidate — cost/time/distance/fewerStops only. `freshness`/`reliability`
+ * are deliberately not modeled: no real per-store data source exists for
+ * either anywhere in this app. */
+export interface PlanWeights {
+  cost: number;
+  time: number;
+  distance: number;
+  fewerStops: number;
+}
+
+export interface PlanLineItem {
+  listItemId: string;
+  rawText: string;
+  product: ApiProduct | null;
+  notFound: boolean;
+  alternativeSuggestion?: ApiProduct;
+}
+
+export interface PlanStoreAssignment {
+  store: ApiProduct['store'];
+  location: StoreLocation;
+  items: PlanLineItem[];
+  subtotal: number;
+}
+
+export type PlanCandidateId = 'balanced' | 'cheapest' | 'fastest' | 'fewest-stops';
+
+export interface PlanCandidate {
+  id: PlanCandidateId;
+  label: string;
+  storeAssignments: PlanStoreAssignment[];
+  totalCost: number;
+  estimatedGasCost: number;
+  estimatedSavings: number;
+  totalDriveMinutes: number;
+  totalDriveMiles: number;
+  storeCount: number;
+  itemsFound: number;
+  itemsTotal: number;
+  tripPlan: TripPlan;
+}
+
+export interface ShoppingPlanRequest {
+  items: PlannerListItem[];
+  zipcode: string;
+}
+
+export interface ShoppingPlanResponse {
+  candidates: PlanCandidate[];
+  recommendedId: PlanCandidateId;
+  unresolvedItems: PlanLineItem[];
+}

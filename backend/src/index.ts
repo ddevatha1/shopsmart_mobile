@@ -5,6 +5,7 @@ import { handleSearch } from './routes/search.ts';
 import { handleProductImage } from './routes/productImage.ts';
 import { handleTrip } from './routes/trip.ts';
 import { handleWarmup } from './routes/warmup.ts';
+import { handlePlanner } from './routes/planner.ts';
 import { runWarmup } from './services/warmupService.ts';
 import { perfLog } from './utils/perfLog.ts';
 
@@ -17,6 +18,7 @@ app.post('/api/search', handleSearch);
 app.get('/api/product-image', handleProductImage);
 app.post('/api/trip', handleTrip);
 app.post('/api/warmup', handleWarmup);
+app.post('/api/planner', handlePlanner);
 
 // express.json() throws a SyntaxError for unparseable bodies — mirror the
 // web route's `Invalid JSON body.` response instead of Express's default HTML.

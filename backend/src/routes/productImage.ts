@@ -1,8 +1,8 @@
 /**
  * GET /api/product-image?name=...&store=...&storeProductUrl=... —
  * server-side fallback photo lookup for products a store's own listing
- * didn't include an image for (after search.ts's free, exact same-response
- * sibling backfill has already had a chance — see
+ * didn't include an image for (after searchService.ts's free, exact
+ * same-response sibling backfill has already had a chance — see
  * backfillImagesFromSiblings — this only runs for whatever is still
  * missing after that).
  *
@@ -22,14 +22,14 @@
  *     User-Agent identifying the calling app; omitting one (an earlier
  *     version of this endpoint did) gets requests silently rejected. Every
  *     candidate is checked with hasDifferentHeadNoun — the same structural
- *     "is this actually the same product" signal search.ts uses for
+ *     "is this actually the same product" signal searchService.ts uses for
  *     relevance/classification — before its image is trusted. This is what
  *     turns "first result with any image" (verified live to return a
  *     yogurt photo for a "Straus Organic Milk" query) into "a result
  *     that's actually the same product, or nothing."
  */
 import type { Request, Response } from 'express';
-import { hasDifferentHeadNoun, tokenizeName } from './search.ts';
+import { hasDifferentHeadNoun, tokenizeName } from '../services/searchService.ts';
 import { fetchSproutsProductImage } from '../services/sproutsLiveScraper.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { withTimeout } from '../utils/withTimeout.ts';

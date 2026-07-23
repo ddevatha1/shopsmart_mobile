@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,9 +7,22 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { User } from '../models/types';
 import { cartItemCount, cartTotal, useCartStore } from '../store/cartStore';
 import { useUserStore } from '../store/userStore';
+import { GROCERY_TAXONOMY } from '../data/groceryTaxonomy';
+import { getAllPreferences, clearPreference } from '../services/plannerPreferenceService';
+import type { PlannerPreferences } from '../repositories/plannerPreferenceRepository';
 import { colors } from '../theme/colors';
 import { spacing, radius } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
+
+function taxonomyLabel(taxonomyEntryId: string): string {
+  return taxonomyEntryId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function subtypeLabel(taxonomyEntryId: string, subtypeId: string): string {
+  if (subtypeId === 'no-preference') return 'No Preference';
+  const entry = GROCERY_TAXONOMY.find(e => e.id === taxonomyEntryId);
+  return entry?.subtypes.find(s => s.id === subtypeId)?.label ?? subtypeId;
+}
 
 /** Mirrors shopsmart_web/src/components/ProfileTray.tsx. The web slide-over
  * tray becomes a persistent bottom-nav tab (same rationale as CartScreen).
@@ -63,6 +76,20 @@ function SignedInProfile({ user }: { user: User }) {
   const count = cartItemCount(items);
   const uniqueStores = new Set(items.map((i) => i.product.store)).size;
 
+  const [plannerPrefs, setPlannerPrefs] = useState<PlannerPreferences>({});
+  useEffect(() => {
+    getAllPreferences(user.email).then(setPlannerPrefs);
+  }, [user.email]);
+
+  const handleClearPreference = async (taxonomyEntryId: string) => {
+    await clearPreference(user.email, taxonomyEntryId);
+    setPlannerPrefs((prev) => {
+      const next = { ...prev };
+      delete next[taxonomyEntryId];
+      return next;
+    });
+  };
+
   return (
     <ScrollView>
       <View style={styles.profileHeader}>
@@ -108,6 +135,28 @@ function SignedInProfile({ user }: { user: User }) {
           </View>
         ) : (
           <Text style={styles.mutedText}>No searches yet.</Text>
+        )}
+
+        <SectionLabel text="Grocery Preferences" />
+        {Object.keys(plannerPrefs).length > 0 ? (
+          <View style={styles.infoCard}>
+            {Object.entries(plannerPrefs).map(([taxonomyEntryId, subtypeId], i, arr) => (
+              <View
+                key={taxonomyEntryId}
+                style={[styles.prefRow, i < arr.length - 1 && styles.infoRowBorder]}
+              >
+                <View>
+                  <Text style={styles.infoValue}>{taxonomyLabel(taxonomyEntryId)}</Text>
+                  <Text style={styles.prefSubtype}>{subtypeLabel(taxonomyEntryId, subtypeId)}</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleClearPreference(taxonomyEntryId)} hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}>
+                  <Text style={styles.prefClear}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <EmptyCard text="No remembered choices yet — the Smart Shopping Planner will save them here as you use it." />
         )}
 
         <TouchableOpacity style={styles.signOutButton} onPress={() => signOut()}>
@@ -276,6 +325,9 @@ const styles = StyleSheet.create({
   infoCard: { backgroundColor: colors.panelBg, borderRadius: radius.lg, overflow: 'hidden' },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md + 2 },
   infoRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.borderGray },
+  prefRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md + 2 },
+  prefSubtype: { color: `${colors.charcoal}80`, fontSize: 11.5, marginTop: 2 },
+  prefClear: { color: `${colors.charcoal}66`, fontSize: 12, fontWeight: '500' },
   infoLabel: { color: `${colors.charcoal}99`, fontSize: 13 },
   infoValue: { fontWeight: '600', fontSize: 13 },
   cartSummary: { backgroundColor: colors.mint, borderRadius: radius.lg, padding: spacing.lg },

@@ -30,6 +30,10 @@ export type RootStackParamList = {
    * param — same pattern as every other screen reading shared state from
    * Zustand instead of threading it through navigation. */
   Route: undefined;
+  /** The Smart Shopping Planner — no params; reads ZIP/preferences from
+   * useUserStore/plannerPreferenceService the same way every other screen
+   * reads shared state instead of threading it through navigation. */
+  Planner: undefined;
 };
 
 export type TabParamList = {

@@ -11,6 +11,7 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { CompareScreen } from '../screens/CompareScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { RouteScreen } from '../screens/RouteScreen';
+import { PlannerScreen } from '../screens/PlannerScreen';
 import { AuthScreen } from '../screens/AuthScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
@@ -121,6 +122,7 @@ export function AppNavigator() {
         <Stack.Screen name="Compare" component={CompareScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Route" component={RouteScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Planner" component={PlannerScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'fullScreenModal' }} />
       </Stack.Navigator>
     </NavigationContainer>

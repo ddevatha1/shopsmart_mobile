@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -488,6 +489,8 @@ function SearchHeader({
         </View>
       </View>
 
+      <PlannerEntryCard onPress={() => navigation.navigate('Planner')} />
+
       {advisorInsight && (
         <View style={styles.advisorSlot}>
           <AdvisorCard insight={advisorInsight} onSeeProduct={onSeeProduct} onAddToCart={onAddToCart} />
@@ -540,6 +543,23 @@ function SearchHeader({
   );
 }
 
+/** Entry point into the Smart Shopping Planner — mirrors the card
+ * shopsmart_web's home page renders right below its hero search section. */
+function PlannerEntryCard({ onPress }: { onPress: () => void }) {
+  return (
+    <AnimatedPressable onPress={onPress} style={styles.plannerCard} scaleTo={0.98}>
+      <View style={styles.plannerIconBadge}>
+        <Ionicons name="clipboard-outline" size={20} color={colors.green} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.plannerTitle}>Smart Shopping Planner</Text>
+        <Text style={styles.plannerSubtitle}>Paste your whole grocery list — get the best route, stores, and prices, instantly.</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={`${colors.charcoal}4d`} />
+    </AnimatedPressable>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.white },
   hero: { backgroundColor: colors.mint, padding: spacing.xl, paddingBottom: spacing.xxl },
@@ -569,4 +589,12 @@ const styles = StyleSheet.create({
   storeDot: { width: 10, height: 10, borderRadius: 5 },
   emptyTitle: { color: `${colors.charcoal}80`, fontWeight: '600', fontSize: 14 },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13, textAlign: 'center' },
+  plannerCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray,
+    borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.lg, marginTop: -spacing.lg,
+  },
+  plannerIconBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  plannerTitle: { color: colors.charcoal, fontWeight: '700', fontSize: 14 },
+  plannerSubtitle: { color: `${colors.charcoal}80`, fontSize: 12, marginTop: 2 },
 });

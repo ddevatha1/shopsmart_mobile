@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { authRepository, AuthError } from '../repositories/authRepository';
 import { useUserStore } from '../store/userStore';
+import { useOnboardingStore } from '../store/onboardingStore';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
@@ -32,6 +33,7 @@ export function AuthScreen({ navigation, route }: Props) {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const signIn = useUserStore((s) => s.signIn);
+  const completeOnboarding = useOnboardingStore((s) => s.completeOnboarding);
 
   const isSignUp = mode === 'signUp';
   const onSuccess = route.params?.onSuccess ?? 'goBack';
@@ -50,6 +52,10 @@ export function AuthScreen({ navigation, route }: Props) {
         : await authRepository.signIn({ email });
       await signIn(user);
       if (onSuccess === 'toDashboard') {
+        // Reached here either from first-launch onboarding or from its
+        // Skip path — both count as "onboarding done" the moment a
+        // session actually starts, so hints on the real screens can begin.
+        await completeOnboarding();
         navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
       } else {
         navigation.goBack();

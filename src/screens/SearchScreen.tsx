@@ -30,6 +30,7 @@ import { DidYouMeanBanner } from '../components/search/DidYouMeanBanner';
 import { StoreModeBar } from '../components/search/StoreModeBar';
 import { StorePickerSheet } from '../components/search/StorePickerSheet';
 import { ComparisonView } from '../components/comparison/ComparisonView';
+import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { validateSearchQuery } from '../utils/searchValidation';
 import { getHomeInsight, type AdvisorInsight } from '../services/advisorService';
 import {
@@ -46,6 +47,11 @@ import { spacing, radius } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
 
 const POPULAR = ['Organic Milk', 'Avocados', 'Chicken Breast', 'Almond Butter', 'Sourdough Bread'];
+// Shown once, only to a shopper who has genuinely never searched before
+// (see SearchHeader's `recentSearches.length === 0` check) — "let the user
+// perform the main action" rather than explain it, per the onboarding
+// system's "teach only what's needed right now" principle.
+const FIRST_SEARCH_SUGGESTIONS = ['Milk', 'Eggs', 'Chicken'];
 
 /** Shared entrance treatment for the two empty states below (initial
  * prompt, no-results) — a state that just appeared should feel revealed,
@@ -282,6 +288,8 @@ export function SearchScreen() {
             onClearStore={() => setSelectedStore(null)}
             correction={correction}
             onSearchOriginal={searchOriginal}
+            onOpenPlanner={() => navigation.navigate('Planner')}
+            onQuickSearch={runSearch}
           />
           <ComparisonView
             group={combinedGroup}
@@ -335,6 +343,8 @@ export function SearchScreen() {
             onClearStore={() => setSelectedStore(null)}
             correction={correction}
             onSearchOriginal={searchOriginal}
+            onOpenPlanner={() => navigation.navigate('Planner')}
+            onQuickSearch={runSearch}
           />
         }
         refreshControl={<RefreshControl refreshing={hasSearched && loading} onRefresh={handleRefresh} tintColor={colors.green} />}
@@ -410,13 +420,15 @@ interface SearchHeaderProps {
   onClearStore: () => void;
   correction: QueryCorrectionInfo | null;
   onSearchOriginal: (original: string) => void;
+  onOpenPlanner: () => void;
+  onQuickSearch: (term: string) => void;
 }
 
 function SearchHeader({
   query, setQuery, invalidQueryMessage, canSubmit, loading, onSubmit,
   hasSearched, error, displayedCount, totalProductCount, recentSearches, advisorInsight,
   onSeeProduct, onAddToCart, selectedStore, onOpenStorePicker, onClearStore,
-  correction, onSearchOriginal,
+  correction, onSearchOriginal, onOpenPlanner, onQuickSearch,
 }: SearchHeaderProps) {
   const chipTerms = recentSearches.length > 0 ? recentSearches : POPULAR;
   const chipLabel = recentSearches.length > 0 ? 'Recent:' : 'Popular:';
@@ -468,7 +480,7 @@ function SearchHeader({
         </View>
       </View>
 
-      <PlannerEntryCard onPress={() => navigation.navigate('Planner')} />
+      <PlannerEntryCard onPress={onOpenPlanner} />
 
       {advisorInsight && (
         <View style={styles.advisorSlot}>
@@ -494,12 +506,33 @@ function SearchHeader({
                   ? `Enter a product above to browse ${selectedStore}'s inventory.`
                   : 'Enter a product above to compare prices across all four stores near you.'}
               </Text>
+              {recentSearches.length === 0 && (
+                <View style={styles.suggestionRow}>
+                  <Text style={styles.suggestionLabel}>Try searching:</Text>
+                  {FIRST_SEARCH_SUGGESTIONS.map((term) => (
+                    <AnimatedPressable
+                      key={term}
+                      onPress={() => onQuickSearch(term)}
+                      scaleTo={0.95}
+                      style={styles.suggestionChip}
+                    >
+                      <Text style={styles.suggestionChipText}>{term}</Text>
+                    </AnimatedPressable>
+                  ))}
+                </View>
+              )}
             </View>
           </FadeInState>
         )}
 
         {hasSearched && loading && <SearchProgress />}
         {hasSearched && !loading && error != null && <ErrorPanel message={error} />}
+
+        {hasSearched && !loading && error == null && displayedCount > 0 && (
+          <View style={styles.hintSlot}>
+            <ContextualHint hintKey="search-compare" message="ShopSmart compares prices across stores." />
+          </View>
+        )}
 
         {hasSearched && !loading && error == null && displayedCount === 0 && (
           <FadeInState>
@@ -568,6 +601,11 @@ const styles = StyleSheet.create({
   storeDot: { width: 10, height: 10, borderRadius: 5 },
   emptyTitle: { color: `${colors.charcoal}80`, fontWeight: '600', fontSize: 14 },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13, textAlign: 'center' },
+  suggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md },
+  suggestionLabel: { color: `${colors.charcoal}80`, fontSize: 12.5, fontWeight: '600' },
+  suggestionChip: { backgroundColor: colors.mint, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2 },
+  suggestionChipText: { color: colors.green, fontSize: 12.5, fontWeight: '700' },
+  hintSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
   plannerCard: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray,

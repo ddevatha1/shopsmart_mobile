@@ -31,6 +31,7 @@ import {
 } from '../services/navigationController';
 import { recordPurchases } from '../services/purchaseHistoryService';
 import { AnimatedPressable } from '../components/AnimatedPressable';
+import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { RouteMap } from '../components/RouteMap';
 import { colors, storeAccents } from '../theme/colors';
 import { spacing, radius, elevation } from '../theme/metrics';
@@ -338,6 +339,10 @@ function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts }: {
             {tripProgress.isTripComplete ? 'Review Route' : 'Start Route'}
           </Text>
         </AnimatedPressable>
+      </View>
+
+      <View style={styles.hintSlot}>
+        <ContextualHint hintKey="route" message="Save money while keeping your trip efficient." />
       </View>
 
       <TripProgressHeader progress={tripProgress} />
@@ -745,6 +750,7 @@ const styles = StyleSheet.create({
   map: { height: 340, width: '100%' },
 
   startRouteRow: { paddingHorizontal: spacing.lg, marginTop: spacing.lg },
+  hintSlot: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
   startRouteButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
     backgroundColor: colors.green, borderRadius: radius.md, paddingVertical: spacing.md + 2, minHeight: 48,

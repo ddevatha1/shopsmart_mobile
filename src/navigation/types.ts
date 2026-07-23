@@ -3,10 +3,11 @@ import type { ProductGroup } from '../services/comparisonService';
 
 export type RootStackParamList = {
   Splash: undefined;
-  /** First-launch feature walkthrough, shown once per signed-out session
-   * right before Welcome (see SplashScreen/OnboardingScreen). */
+  /** The single minimal Welcome screen — branding + one-sentence value
+   * prop + "Get Started"/"Skip" (see SplashScreen/OnboardingScreen).
+   * Reached on first launch (signed out) and again from Profile's
+   * "Restart Onboarding" (signed in — see ProfileScreen). */
   Onboarding: undefined;
-  Welcome: undefined;
   Tabs: undefined;
   /** Stage 2 — the store comparison hero screen for one semantic product
    * group (see ProductGroupCard / SearchScreen). `allDirectProducts` is the

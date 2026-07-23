@@ -24,6 +24,7 @@ import { getCartSuggestions } from '../services/cartSuggestionService';
 import { ProductImage } from '../components/ProductImage';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
+import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { colors, storeAccents } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
 import { spacing, radius } from '../theme/metrics';
@@ -138,6 +139,9 @@ export function CartScreen() {
         <EmptyCart />
       ) : (
         <>
+          <View style={styles.hintSlot}>
+            <ContextualHint hintKey="cart" message="Add items to your list to find the smartest shopping plan." />
+          </View>
           <SectionList
             sections={sections}
             keyExtractor={(item) => item.product.id}
@@ -305,6 +309,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: '700', fontSize: 18, color: colors.charcoal },
   headerBadge: { backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   headerBadgeText: { color: colors.white, fontSize: 11, fontWeight: '700' },
+  hintSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.sm },
   emptyCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   emptyTitle: { fontWeight: '600', fontSize: 15, color: colors.charcoal },

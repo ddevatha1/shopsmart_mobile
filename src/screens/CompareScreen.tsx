@@ -7,6 +7,7 @@ import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing } from '../theme/metrics';
 import { AnimatedPressable } from '../components/AnimatedPressable';
+import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { ComparisonView } from '../components/comparison/ComparisonView';
 import { useCartStore } from '../store/cartStore';
 import { useSearchStore } from '../store/searchStore';
@@ -59,6 +60,9 @@ export function CompareScreen({ route, navigation }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.hintSlot}>
+          <ContextualHint hintKey="compare" message="Compare prices and savings across stores." />
+        </View>
         <ComparisonView
           group={group}
           allDirectProducts={allDirectProducts}
@@ -92,4 +96,5 @@ const styles = StyleSheet.create({
   },
   headerTitle: { ...typography.h2, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
   scrollContent: { paddingBottom: spacing.xxl },
+  hintSlot: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
 });

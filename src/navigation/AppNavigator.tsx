@@ -15,7 +15,6 @@ import { PlannerScreen } from '../screens/PlannerScreen';
 import { AuthScreen } from '../screens/AuthScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
-import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { cartItemCount, useCartStore } from '../store/cartStore';
 import { colors } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
@@ -124,7 +123,6 @@ export function AppNavigator() {
       >
         <Stack.Screen name="Splash" component={SplashScreen} options={{ animation: 'none' }} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ animation: 'fade' }} />
-        <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="Tabs" component={Tabs} options={{ animation: 'fade' }} />
         <Stack.Screen name="Compare" component={CompareScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />

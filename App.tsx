@@ -15,6 +15,7 @@ import {
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { useCartStore } from './src/store/cartStore';
 import { useUserStore } from './src/store/userStore';
+import { useOnboardingStore } from './src/store/onboardingStore';
 import { useWarmupStore } from './src/store/warmupStore';
 import { perfLog } from './src/utils/perfLog';
 
@@ -28,6 +29,7 @@ perfLog('app:start');
 export default function App() {
   const hydrateCart = useCartStore((s) => s.hydrate);
   const hydrateUser = useUserStore((s) => s.hydrate);
+  const hydrateOnboarding = useOnboardingStore((s) => s.hydrate);
   const warmup = useWarmupStore((s) => s.warmup);
 
   const [fontsLoaded] = useFonts({
@@ -39,6 +41,13 @@ export default function App() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
+
+  useEffect(() => {
+    // Independent of the signed-in user (it must work before an account
+    // even exists, at the Welcome screen) — fired in parallel rather than
+    // chained after hydrateUser.
+    hydrateOnboarding();
+  }, [hydrateOnboarding]);
 
   useEffect(() => {
     // Cart is scoped per signed-in account, so it must hydrate after the

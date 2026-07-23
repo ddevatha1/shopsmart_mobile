@@ -7,6 +7,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { User } from '../models/types';
 import { cartItemCount, cartTotal, useCartStore } from '../store/cartStore';
 import { useUserStore } from '../store/userStore';
+import { useOnboardingStore } from '../store/onboardingStore';
 import { GROCERY_TAXONOMY } from '../data/groceryTaxonomy';
 import { getAllPreferences, clearPreference } from '../services/plannerPreferenceService';
 import type { PlannerPreferences } from '../repositories/plannerPreferenceRepository';
@@ -68,10 +69,12 @@ function initials(name: string): string {
 }
 
 function SignedInProfile({ user }: { user: User }) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const items = useCartStore((s) => s.items);
   const signOut = useUserStore((s) => s.signOut);
   const updateZipcode = useUserStore((s) => s.updateZipcode);
   const updateBudget = useUserStore((s) => s.updateBudget);
+  const resetOnboarding = useOnboardingStore((s) => s.resetOnboarding);
   const total = cartTotal(items);
   const count = cartItemCount(items);
   const uniqueStores = new Set(items.map((i) => i.product.store)).size;
@@ -94,6 +97,15 @@ function SignedInProfile({ user }: { user: User }) {
       delete next[taxonomyEntryId];
       return next;
     });
+  };
+
+  // Re-arms the Welcome screen *and* every contextual hint (see
+  // onboardingStore.resetOnboarding) then sends the shopper there directly
+  // — they stay signed in throughout; OnboardingScreen detects the
+  // existing session and skips straight past account creation.
+  const handleRestartOnboarding = async () => {
+    await resetOnboarding();
+    navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
   };
 
   return (
@@ -164,6 +176,12 @@ function SignedInProfile({ user }: { user: User }) {
         ) : (
           <EmptyCard text="No remembered choices yet — the Smart Shopping Planner will save them here as you use it." />
         )}
+
+        <SectionLabel text="Help" />
+        <TouchableOpacity style={styles.restartOnboardingRow} onPress={handleRestartOnboarding}>
+          <Ionicons name="refresh-outline" size={16} color={colors.green} />
+          <Text style={styles.restartOnboardingText}>Restart Onboarding</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.signOutButton} onPress={() => signOut()}>
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -363,6 +381,12 @@ const styles = StyleSheet.create({
   zipCancel: { color: `${colors.charcoal}80`, fontSize: 13, fontWeight: '500' },
   zipSave: { color: colors.green, fontSize: 13, fontWeight: '700' },
   zipSaveDisabled: { opacity: 0.4 },
+  restartOnboardingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.panelBg, borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md + 2, minHeight: 48,
+  },
+  restartOnboardingText: { color: colors.green, fontWeight: '600', fontSize: 13.5 },
   signOutButton: { borderWidth: 1, borderColor: '#FECACA', borderRadius: radius.md, paddingVertical: spacing.md + 2, minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xxl },
   signOutText: { color: '#DC2626', fontWeight: '600', fontSize: 14 },
   footerTagline: { textAlign: 'center', color: `${colors.charcoal}4d`, fontSize: 11, marginTop: spacing.md },

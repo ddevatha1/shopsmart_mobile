@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useUserStore } from '../store/userStore';
+import { useOnboardingStore } from '../store/onboardingStore';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import type { RootStackParamList } from '../navigation/types';
@@ -22,6 +23,24 @@ import type { RootStackParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 
 const MIN_DURATION_MS = 2200;
+
+/** Waits for a zustand store's `hydrated` flag via its own subscription
+ * rather than polling — reused for both userStore and onboardingStore
+ * below, which hydrate independently of each other but must both finish
+ * before Splash can decide where to send the shopper (a stale
+ * onboarding-completed read would otherwise flash the Welcome screen for
+ * a returning user, or vice versa). */
+function waitForHydration(store: { getState: () => { hydrated: boolean }; subscribe: (listener: (state: { hydrated: boolean }) => void) => () => void }): Promise<void> {
+  if (store.getState().hydrated) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = store.subscribe((state) => {
+      if (state.hydrated) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
 
 /**
  * The app's first screen on every launch. Purely presentational — routes
@@ -74,21 +93,15 @@ export function SplashScreen({ navigation }: Props) {
     const start = Date.now();
 
     async function proceedWhenReady() {
-      // Waits for hydration via the store's own subscription rather than
-      // polling on a timer, so slow storage reads never cut the animation
-      // off mid-flight, but typical fast reads don't extend it past the
-      // minimum either — and the UI thread isn't woken every 50ms for no
-      // reason while waiting.
-      if (!useUserStore.getState().hydrated) {
-        await new Promise<void>((resolve) => {
-          const unsubscribe = useUserStore.subscribe((state) => {
-            if (state.hydrated) {
-              unsubscribe();
-              resolve();
-            }
-          });
-        });
-      }
+      // Waits for both stores' hydration via their own subscriptions
+      // rather than polling on a timer, so slow storage reads never cut
+      // the animation off mid-flight, but typical fast reads don't extend
+      // it past the minimum either — and the UI thread isn't woken every
+      // 50ms for no reason while waiting.
+      await Promise.all([
+        waitForHydration(useUserStore),
+        waitForHydration(useOnboardingStore),
+      ]);
       if (cancelled) return;
       const elapsed = Date.now() - start;
       const remaining = Math.max(0, MIN_DURATION_MS - elapsed);

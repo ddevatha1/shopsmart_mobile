@@ -436,7 +436,7 @@ function SearchHeader({
     <>
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>Compare grocery prices, instantly</Text>
-        <Text style={styles.heroSubtitle}>Search Trader Joe&apos;s, Sprouts, Kroger & Aldi near you.</Text>
+        <Text style={styles.heroSubtitle}>Search Trader Joe&apos;s, Sprouts, Kroger, Aldi & Albertsons near you.</Text>
 
         <View style={styles.searchCard}>
           <TextInput

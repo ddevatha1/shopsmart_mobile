@@ -31,24 +31,50 @@ export interface PreciseLocationResult {
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cached: { coords: Coordinates | null; expiresAt: number } | null = null;
 
+// Caps how long any caller of getCurrentCoordinates() will actually wait —
+// a shopper who leaves the browser's/OS's permission prompt unanswered
+// (neither Allow nor Block) can otherwise leave requestForegroundPermissionsAsync
+// pending indefinitely, which would silently hang whatever awaited this
+// (found live: it blocked Search from ever firing its request). Racing it
+// against this timeout is what actually makes the "never blocks the UI"
+// contract in this file's own header comment true, rather than just
+// documented intent.
+const PERMISSION_TIMEOUT_MS = 4000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
+
+async function resolveCoordinates(): Promise<Coordinates | null> {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') return null;
+  const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  return { latitude: position.coords.latitude, longitude: position.coords.longitude };
+}
+
 export async function getCurrentCoordinates(): Promise<Coordinates | null> {
   if (cached && Date.now() < cached.expiresAt) return cached.coords;
 
-  let coords: Coordinates | null = null;
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status === 'granted') {
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-    }
-  } catch {
-    coords = null;
-  }
+  // `undefined` (distinct from a settled `null`) means the permission
+  // prompt never resolved within the timeout — treated as "check again
+  // next time" rather than cached as a 5-minute "no location," since it
+  // was never actually answered.
+  const result = await withTimeout<Coordinates | null | undefined>(
+    resolveCoordinates().catch(() => null),
+    PERMISSION_TIMEOUT_MS,
+    undefined,
+  );
 
-  cached = { coords, expiresAt: Date.now() + CACHE_TTL_MS };
-  return coords;
+  if (result !== undefined) {
+    cached = { coords: result, expiresAt: Date.now() + CACHE_TTL_MS };
+  }
+  return result ?? null;
 }
 
 /** A shopper-initiated, high-accuracy GPS fix — used only by the pre-route

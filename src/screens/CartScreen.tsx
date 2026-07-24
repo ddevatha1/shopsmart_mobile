@@ -24,6 +24,7 @@ import { getCartSuggestions } from '../services/cartSuggestionService';
 import { ProductImage } from '../components/ProductImage';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
+import { AutoOptimizeSheet } from '../components/cart/AutoOptimizeSheet';
 import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { colors, storeAccents } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
@@ -123,6 +124,9 @@ export function CartScreen() {
 
   const cartSuggestions = useMemo(() => getCartSuggestions(items), [items]);
 
+  const [optimizeSheetVisible, setOptimizeSheetVisible] = useState(false);
+  const canOptimize = groups.length >= 1;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.white }} edges={['top']}>
       <View style={styles.header}>
@@ -155,6 +159,11 @@ export function CartScreen() {
                       insight={advisorInsight}
                       onSeeProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: [] })}
                       onAddToCart={(product) => addToCart(product)}
+                      primaryAction={
+                        (advisorInsight.kind === 'skip-the-stop' || advisorInsight.kind === 'worth-the-stop') && canOptimize
+                          ? { label: 'Auto-Optimize my cart', onPress: () => setOptimizeSheetVisible(true) }
+                          : undefined
+                      }
                     />
                   )}
                   {cartSuggestions.length > 0 && (
@@ -179,9 +188,19 @@ export function CartScreen() {
             zipcode={zipcode}
             byStore={byStore}
             onStartRoute={() => navigation.navigate('Route')}
+            onAutoOptimize={canOptimize ? () => setOptimizeSheetVisible(true) : undefined}
           />
         </>
       )}
+
+      <AutoOptimizeSheet
+        visible={optimizeSheetVisible}
+        onClose={() => setOptimizeSheetVisible(false)}
+        items={items}
+        groups={groups}
+        zipcode={zipcode}
+        currentTripMinutes={tripPreview?.totalDurationMinutes ?? null}
+      />
     </SafeAreaView>
   );
 }
@@ -265,12 +284,13 @@ function CartRow({ item, onUpdateQty, onRemove }: {
   );
 }
 
-function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute }: {
+function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute, onAutoOptimize }: {
   total: number;
   uniqueStoreCount: number;
   zipcode: string;
   byStore: { store: StoreName; items: CartItem[]; subtotal: number }[];
   onStartRoute: () => void;
+  onAutoOptimize?: () => void;
 }) {
   return (
     <View style={styles.footer}>
@@ -295,6 +315,12 @@ function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute }:
         <Text style={styles.totalLabel}>Total</Text>
         <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
       </View>
+      {onAutoOptimize && (
+        <AnimatedPressable style={styles.autoOptimizeButton} onPress={onAutoOptimize}>
+          <Ionicons name="sparkles" size={16} color={colors.green} />
+          <Text style={styles.autoOptimizeText}>Auto-Optimize</Text>
+        </AnimatedPressable>
+      )}
       <AnimatedPressable style={styles.startRouteButton} onPress={onStartRoute}>
         <Ionicons name="navigate" size={17} color={colors.white} />
         <Text style={styles.startRouteText}>Start Route</Text>
@@ -341,6 +367,11 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontWeight: '600', fontSize: 15, color: colors.charcoal },
   totalValue: { color: colors.green, fontWeight: '800', fontSize: 20 },
+  autoOptimizeButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    backgroundColor: colors.mint, borderRadius: radius.md, paddingVertical: spacing.md, minHeight: 44,
+  },
+  autoOptimizeText: { color: colors.green, fontWeight: '700', fontSize: 13.5 },
   startRouteButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
     backgroundColor: colors.green, borderRadius: radius.md, paddingVertical: spacing.md + 2, minHeight: 48,

@@ -90,7 +90,7 @@ export function AuthScreen({ navigation, route }: Props) {
           <Text style={styles.headerTitle}>{isSignUp ? 'Create your account' : 'Welcome back'}</Text>
           <Text style={styles.headerSubtitle}>
             {isSignUp
-              ? 'Save carts across all four stores and track price history.'
+              ? 'Save carts across nearby stores and track price history.'
               : 'Sign in to access your saved carts and search history.'}
           </Text>
         </View>

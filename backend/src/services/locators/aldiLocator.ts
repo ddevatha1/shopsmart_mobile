@@ -46,6 +46,11 @@ const locationCache = new TtlCache<StoreLocation>(60 * 60 * 1000); // 1 hour
  * instead of each independently re-authenticating. */
 export function createAldiLocator(getSessionCookie: () => Promise<string>): StoreLocator {
   return {
+    // Aldi's shops endpoint resolves the nearest in-store location entirely
+    // server-side from `postal_code` — there's no per-candidate coordinate
+    // list to re-rank client-side, so a precise GPS fix (unlike Kroger's
+    // locator) can't improve on it here; the param exists to satisfy the
+    // shared StoreLocator contract, not because it's used.
     async findNearestStore(zip: string): Promise<StoreLocation | undefined> {
       const cached = locationCache.get(zip);
       if (cached) return cached;

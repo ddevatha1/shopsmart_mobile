@@ -5,6 +5,7 @@ import { useUserStore } from './userStore';
 import { useWarmupStore } from './warmupStore';
 import { recordObservations } from '../services/priceHistoryService';
 import { perfLog } from '../utils/perfLog';
+import { getCurrentCoordinates } from '../services/locationService';
 
 interface SearchState {
   hasSearched: boolean;
@@ -54,7 +55,19 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     useUserStore.getState().trackSearch(query);
 
     try {
-      const response = await searchRepository.search(query, zipcode, options);
+      // Real GPS, when permission's already granted and a fix is cached/
+      // cheaply available, lets store selection rank by the shopper's
+      // actual position instead of only their ZIP's geocoded centroid —
+      // see krogerLocator.ts. Never blocks on a fresh permission prompt for
+      // this: `getCurrentCoordinates` already treats "not yet granted" as
+      // null and search falls back to zip-centroid resolution exactly like
+      // it always has.
+      const coords = await getCurrentCoordinates();
+      const response = await searchRepository.search(query, zipcode, {
+        ...options,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+      });
       set({
         products: response.products,
         storeStatuses: response.storeStatuses,

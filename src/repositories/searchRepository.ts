@@ -10,7 +10,11 @@ import type { SearchResponse } from '../models/types';
  * convention.
  */
 export const searchRepository = {
-  search(query: string, zipcode: string, options?: { noCorrect?: boolean }): Promise<SearchResponse> {
+  search(
+    query: string,
+    zipcode: string,
+    options?: { noCorrect?: boolean; latitude?: number; longitude?: number },
+  ): Promise<SearchResponse> {
     return apiClient.search(query, zipcode, options);
   },
 };

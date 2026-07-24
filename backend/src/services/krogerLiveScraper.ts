@@ -13,6 +13,7 @@ import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createKrogerLocator } from './locators/krogerLocator.ts';
+import type { PreciseCoords } from './locators/types.ts';
 
 const KROGER_API = 'https://api.kroger.com/v1';
 
@@ -149,8 +150,15 @@ function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined)
 export async function searchKroger(
   query: string,
   zipcode: string,
+  preciseCoords?: PreciseCoords,
 ): Promise<ApiProduct[]> {
-  const cacheKey = `${query.toLowerCase().trim()}|${zipcode}`;
+  // Precise coordinates can change which real store this resolves to (see
+  // krogerLocator.ts) — folded into the cache key so a shopper with a GPS
+  // fix never gets served another shopper's centroid-based result for the
+  // same zip, or vice versa.
+  const cacheKey = preciseCoords
+    ? `${query.toLowerCase().trim()}|${zipcode}|${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}`
+    : `${query.toLowerCase().trim()}|${zipcode}`;
   const cached = productCache.get(cacheKey);
   if (cached) {
     console.log(`[Kroger] Cache hit for "${query}"`);
@@ -160,7 +168,7 @@ export async function searchKroger(
   console.log(`[Kroger] Live fetch for "${query}" @ ${zipcode}`);
 
   const token = await getToken();
-  const storeLocation = await krogerLocator.findNearestStore(zipcode);
+  const storeLocation = await krogerLocator.findNearestStore(zipcode, preciseCoords);
 
   if (!storeLocation) {
     console.log(`[Kroger] No Kroger location found near ${zipcode}`);
@@ -207,8 +215,9 @@ export function searchKrogerWithTimeout(
   query: string,
   zipcode: string,
   timeoutMs: number,
+  preciseCoords?: PreciseCoords,
 ): Promise<ApiProduct[]> {
-  return withTimeout(searchKroger(query, zipcode), timeoutMs, 'Kroger search');
+  return withTimeout(searchKroger(query, zipcode, preciseCoords), timeoutMs, 'Kroger search');
 }
 
 // ── Warm-up ────────────────────────────────────────────────────────────────

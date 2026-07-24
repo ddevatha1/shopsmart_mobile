@@ -71,6 +71,12 @@ export interface User {
 export interface SearchRequest {
   query: string;
   zipcode: string;
+  /** The shopper's real GPS fix, when the app has it — lets store selection
+   * rank by their actual position instead of only the ZIP's geocoded
+   * centroid (see services/locators/krogerLocator.ts). Optional; omitted
+   * entirely falls back to zip-centroid resolution, same as before. */
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface StoreStatus {

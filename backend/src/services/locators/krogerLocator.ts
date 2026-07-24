@@ -2,7 +2,7 @@ import type { StoreLocation } from '../../types/index.ts';
 import { TtlCache } from '../../utils/ttlCache.ts';
 import { dedupeInFlight } from '../../utils/dedupeInFlight.ts';
 import { geocodeAddress, haversineDistanceMiles } from '../../utils/geocode.ts';
-import type { StoreLocator } from './types.ts';
+import type { PreciseCoords, StoreLocator } from './types.ts';
 
 /**
  * Kroger's own official Locations API (developer.kroger.com) — a real,
@@ -75,13 +75,23 @@ export function sortByDistanceFrom(
 async function rankByDistance(
   zip: string,
   candidates: KrogerLocationRecord[],
+  preciseCoords?: PreciseCoords,
 ): Promise<KrogerLocationRecord[]> {
-  const userCoords = await geocodeAddress(`${zip}, USA`);
+  // Prefer the shopper's real GPS fix over the ZIP's geocoded centroid —
+  // the centroid can genuinely be closer to a different real store than
+  // where the shopper actually is (verified live for zip 75034: two real
+  // Frisco, TX Krogers, and the nearer-to-centroid one isn't always the
+  // nearer-to-shopper one). Falls back to geocoding the ZIP when no
+  // precise fix is available (no permission granted, or a web client).
+  const userCoords = preciseCoords ?? (await geocodeAddress(`${zip}, USA`));
   if (!userCoords) {
     console.log(`[KrogerLocator] Could not geocode ZIP ${zip} — using API's original order as a fallback.`);
     return candidates;
   }
-  console.log(`[KrogerLocator] zip=${zip} -> geocoded to (${userCoords.latitude}, ${userCoords.longitude})`);
+  console.log(
+    `[KrogerLocator] zip=${zip} -> ranking from ${preciseCoords ? 'precise GPS' : 'geocoded ZIP centroid'} ` +
+      `(${userCoords.latitude}, ${userCoords.longitude})`,
+  );
   const ranked = sortByDistanceFrom(userCoords, candidates);
   console.log(
     `[KrogerLocator] Candidates near ${zip}, ranked by distance:\n` +
@@ -90,13 +100,26 @@ async function rankByDistance(
   return ranked;
 }
 
+// Cache is keyed by zip alone for a ZIP-centroid lookup, but a precise fix
+// can legitimately select a different store than the centroid would for
+// the same zip — folding a coarse (~1km) rounding of the coordinates into
+// the key keeps that case from being served someone else's cached answer,
+// while still caching effectively for repeat searches from about the same
+// spot.
+function cacheKey(zip: string, preciseCoords?: PreciseCoords): string {
+  if (!preciseCoords) return zip;
+  return `${zip}:${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}`;
+}
+
 export function createKrogerLocator(getToken: () => Promise<string>): StoreLocator {
   return {
     // Deduped so a racing warm-up and a shopper's first real search for the
     // same zip share one lookup (including the token fetch and every radius
     // attempt below) instead of each firing their own.
-    async findNearestStore(zip: string): Promise<StoreLocation | undefined> {
-      return dedupeInFlight(`kroger-locate:${zip}`, () => findNearestStoreUncached(zip, getToken));
+    async findNearestStore(zip: string, preciseCoords?: PreciseCoords): Promise<StoreLocation | undefined> {
+      return dedupeInFlight(`kroger-locate:${cacheKey(zip, preciseCoords)}`, () =>
+        findNearestStoreUncached(zip, getToken, preciseCoords),
+      );
     },
   };
 }
@@ -104,8 +127,10 @@ export function createKrogerLocator(getToken: () => Promise<string>): StoreLocat
 async function findNearestStoreUncached(
   zip: string,
   getToken: () => Promise<string>,
+  preciseCoords?: PreciseCoords,
 ): Promise<StoreLocation | undefined> {
-  const cached = locationCache.get(zip);
+  const key = cacheKey(zip, preciseCoords);
+  const cached = locationCache.get(key);
   if (cached) {
     console.log(`[KrogerLocator] zip=${zip} -> cache hit: ${cached.name} (${cached.city}, ${cached.state})`);
     return cached;
@@ -152,7 +177,7 @@ async function findNearestStoreUncached(
       // nearest candidate at this SAME radius before giving up and
       // escalating to a wider radius, which could otherwise skip over a
       // real, valid, closer store in favor of a farther one.
-      const ranked = await rankByDistance(zip, candidates);
+      const ranked = await rankByDistance(zip, candidates, preciseCoords);
       for (const candidate of ranked) {
         const location = toStoreLocation(candidate);
         if (!location) {
@@ -162,7 +187,7 @@ async function findNearestStoreUncached(
           );
           continue;
         }
-        locationCache.set(zip, location);
+        locationCache.set(key, location);
         console.log(
           `[KrogerLocator] zip=${zip} -> SELECTED locationId=${candidate.locationId} "${location.name}" ` +
             `${location.address}, ${location.city}, ${location.state} ${location.zip} ` +

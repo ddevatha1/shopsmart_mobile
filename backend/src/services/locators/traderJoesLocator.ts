@@ -4,7 +4,7 @@ import { dedupeInFlight } from '../../utils/dedupeInFlight.ts';
 import { withTimeout } from '../../utils/withTimeout.ts';
 import { geocodeAddress, geocodeZip, haversineDistanceMiles } from '../../utils/geocode.ts';
 import { stateNameToCode } from './usStates.ts';
-import type { StoreLocator } from './types.ts';
+import type { PreciseCoords, StoreLocator } from './types.ts';
 
 /**
  * Trader Joe's has no store-aware product-search API and no dynamic
@@ -141,21 +141,29 @@ export function createTraderJoesLocator(): StoreLocator {
   return {
     // Deduped so a racing warm-up and a shopper's first real search for the
     // same zip share one resolution instead of each firing their own.
-    async findNearestStore(zip: string): Promise<StoreLocation | undefined> {
-      return dedupeInFlight(`trader-joes-locate:${zip}`, () => findNearestStoreUncached(zip));
+    async findNearestStore(zip: string, preciseCoords?: PreciseCoords): Promise<StoreLocation | undefined> {
+      const key = preciseCoords ? `${zip}:${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}` : zip;
+      return dedupeInFlight(`trader-joes-locate:${key}`, () => findNearestStoreUncached(zip, preciseCoords));
     },
   };
 }
 
-async function findNearestStoreUncached(zip: string): Promise<StoreLocation | undefined> {
-  const cached = nearestStoreCache.get(zip);
+async function findNearestStoreUncached(zip: string, preciseCoords?: PreciseCoords): Promise<StoreLocation | undefined> {
+  const cacheKey = preciseCoords ? `${zip}:${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}` : zip;
+  const cached = nearestStoreCache.get(cacheKey);
   if (cached) return cached;
 
-  const userGeo = await geocodeZip(zip);
-  if (!userGeo?.state) {
+  // The ZIP is still needed to determine which state's stores to search
+  // (the directory is filtered by state, not distance) — but ranking uses
+  // the shopper's real GPS fix over the ZIP's geocoded centroid when one is
+  // available, same reasoning as krogerLocator.ts.
+  const zipGeo = await geocodeZip(zip);
+  const zipState = zipGeo?.state;
+  if (!zipState) {
     console.log(`[TraderJoesLocator] Could not determine the state for zip ${zip}.`);
     return undefined;
   }
+  const userGeo = preciseCoords ? { ...preciseCoords, state: zipState, city: zipGeo.city } : { ...zipGeo, state: zipState };
   const stateCode = stateNameToCode(userGeo.state);
   if (!stateCode) {
     console.log(`[TraderJoesLocator] Unrecognized state name "${userGeo.state}" for zip ${zip}.`);
@@ -205,7 +213,7 @@ async function findNearestStoreUncached(zip: string): Promise<StoreLocation | un
   const location = await fetchStoreDetail(selectedEntry);
   if (!location) return undefined;
 
-  nearestStoreCache.set(zip, location);
+  nearestStoreCache.set(cacheKey, location);
   console.log(
     `[TraderJoesLocator] Selected storeCode=${selectedEntry.storeCode} "${location.name}" for zip ${zip}`,
   );

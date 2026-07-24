@@ -15,6 +15,7 @@ import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
 import { correctQuery, logQueryCorrection } from './queryCorrection.ts';
 import { perfLog } from '../utils/perfLog.ts';
+import type { PreciseCoords } from './locators/types.ts';
 
 type StoreName = ApiProduct['store'];
 
@@ -390,7 +391,7 @@ function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
 export async function performSearch(
   rawQuery: string,
   zipcode: string,
-  options?: { noCorrect?: boolean },
+  options?: { noCorrect?: boolean; preciseCoords?: PreciseCoords },
 ): Promise<SearchResponse> {
   const requestStart = Date.now();
   perfLog('search:request-start', { query: rawQuery, zipcode });
@@ -403,10 +404,11 @@ export async function performSearch(
   perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level });
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
+  const preciseCoords = options?.preciseCoords;
   const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.allSettled([
-    timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000)), // still browser-based; includes storefront visit on first run
+    timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000, preciseCoords)), // still browser-based; includes storefront visit on first run
     timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000)), // plain GraphQL API, no browser
-    timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000)), // REST API, no browser
+    timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000, preciseCoords)), // REST API, no browser
     timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000)), // GraphQL API, no browser
   ]);
 

@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 import { performSearch } from '../services/searchService.ts';
 
 export async function handleSearch(req: Request, res: Response): Promise<void> {
-  const body = req.body as { query?: string; zipcode?: string; noCorrect?: boolean };
+  const body = req.body as { query?: string; zipcode?: string; noCorrect?: boolean; latitude?: number; longitude?: number };
 
   const rawQuery = body.query?.trim();
   const zipcode = body.zipcode?.trim();
@@ -24,8 +24,13 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  const preciseCoords =
+    typeof body.latitude === 'number' && typeof body.longitude === 'number'
+      ? { latitude: body.latitude, longitude: body.longitude }
+      : undefined;
+
   try {
-    const response = await performSearch(rawQuery, zipcode, { noCorrect: body.noCorrect });
+    const response = await performSearch(rawQuery, zipcode, { noCorrect: body.noCorrect, preciseCoords });
     res.json(response);
   } catch (err) {
     console.warn('[Search] search failed:', err);

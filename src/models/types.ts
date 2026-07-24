@@ -20,6 +20,11 @@ export interface StoreLocation {
   zip: string;
   latitude?: number;
   longitude?: number;
+  /** Which real, retailer-native source resolved this location. Optional on
+   * the frontend (unlike the backend, which always sets it) so older
+   * persisted cart data from before this field existed still type-checks. */
+  source?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ApiProduct {

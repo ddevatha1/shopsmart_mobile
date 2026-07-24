@@ -225,8 +225,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             <DetailRow label="Available at" value={product.store} />
           </AccordionSection>
 
-          {product.location && (
-            <AccordionSection title="Store Location" defaultExpanded>
+          <AccordionSection title="Store Location" defaultExpanded>
+            {product.location ? (
               <View style={styles.storeLocationRow}>
                 <View style={[styles.storeLocationDot, { backgroundColor: accent.dot }]} />
                 <View style={{ flex: 1 }}>
@@ -245,8 +245,18 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                   )}
                 </View>
               </View>
-            </AccordionSection>
-          )}
+            ) : (
+              // Never guess an address — if this store's real location
+              // couldn't be resolved, say so explicitly rather than
+              // silently hiding the section or showing stale/wrong data.
+              <View style={styles.storeLocationRow}>
+                <Ionicons name="location-outline" size={18} color={`${colors.charcoal}a6`} />
+                <Text style={[styles.storeLocationAddress, { flex: 1 }]}>
+                  Location unavailable for this store right now.
+                </Text>
+              </View>
+            )}
+          </AccordionSection>
         </View>
 
         {related.length > 0 && (

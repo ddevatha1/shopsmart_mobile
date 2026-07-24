@@ -110,6 +110,8 @@ async function fetchStoreDetail(entry: DirectoryEntry): Promise<StoreLocation | 
             zip: postalCode,
             latitude: data.geo?.latitude,
             longitude: data.geo?.longitude,
+            source: 'traderjoes-sitemap',
+            metadata: { storeCode: entry.storeCode },
           };
         }
         break;

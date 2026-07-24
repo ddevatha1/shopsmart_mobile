@@ -16,7 +16,7 @@ import type { StoreLocator } from './types.ts';
  */
 const KROGER_API = 'https://api.kroger.com/v1';
 
-interface KrogerLocationRecord {
+export interface KrogerLocationRecord {
   locationId: string;
   name?: string;
   address?: { addressLine1?: string; city?: string; state?: string; zipCode?: string };
@@ -25,7 +25,7 @@ interface KrogerLocationRecord {
 
 const locationCache = new TtlCache<StoreLocation>(60 * 60 * 1000); // 1 hour
 
-function toStoreLocation(loc: KrogerLocationRecord): StoreLocation | undefined {
+export function toStoreLocation(loc: KrogerLocationRecord): StoreLocation | undefined {
   const address = loc.address?.addressLine1;
   const city = loc.address?.city;
   const state = loc.address?.state;
@@ -40,21 +40,25 @@ function toStoreLocation(loc: KrogerLocationRecord): StoreLocation | undefined {
     zip,
     latitude: loc.geolocation?.latitude,
     longitude: loc.geolocation?.longitude,
+    source: 'kroger-api',
+    metadata: { locationId: loc.locationId },
   };
 }
 
-// Picks the closest candidate by actual great-circle distance to the
-// shopper's ZIP code, rather than trusting whatever order the Locations API
-// returns them in — the API's own sort order is not documented/guaranteed.
-async function pickNearest(zip: string, candidates: KrogerLocationRecord[]): Promise<KrogerLocationRecord> {
-  const userCoords = await geocodeAddress(`${zip}, USA`);
-  if (!userCoords) {
-    console.log(`[KrogerLocator] Could not geocode ZIP ${zip} — using API's first result as a fallback.`);
-    return candidates[0];
-  }
-  console.log(`[KrogerLocator] zip=${zip} -> geocoded to (${userCoords.latitude}, ${userCoords.longitude})`);
-
-  const ranked = candidates
+// Ranks every candidate by actual great-circle distance to the shopper's
+// ZIP code, rather than trusting whatever order the Locations API returns
+// them in — the API's own sort order is not documented/guaranteed. Returns
+// the full ranked list (not just the top pick) so the caller can fall back
+// to the next-nearest candidate if the nearest one turns out to be missing
+// required address fields, instead of abandoning the whole radius tier.
+// Pure sort step, split out from rankByDistance so it's testable without a
+// real geocode call — candidates missing coordinates sort last (Infinity)
+// rather than being dropped, matching rankByDistance's behavior.
+export function sortByDistanceFrom(
+  userCoords: { latitude: number; longitude: number },
+  candidates: KrogerLocationRecord[],
+): KrogerLocationRecord[] {
+  return candidates
     .map(loc => {
       const lat = loc.geolocation?.latitude;
       const lng = loc.geolocation?.longitude;
@@ -64,20 +68,26 @@ async function pickNearest(zip: string, candidates: KrogerLocationRecord[]): Pro
           : Infinity;
       return { loc, distanceMiles };
     })
-    .sort((a, b) => a.distanceMiles - b.distanceMiles);
+    .sort((a, b) => a.distanceMiles - b.distanceMiles)
+    .map(r => r.loc);
+}
 
+async function rankByDistance(
+  zip: string,
+  candidates: KrogerLocationRecord[],
+): Promise<KrogerLocationRecord[]> {
+  const userCoords = await geocodeAddress(`${zip}, USA`);
+  if (!userCoords) {
+    console.log(`[KrogerLocator] Could not geocode ZIP ${zip} — using API's original order as a fallback.`);
+    return candidates;
+  }
+  console.log(`[KrogerLocator] zip=${zip} -> geocoded to (${userCoords.latitude}, ${userCoords.longitude})`);
+  const ranked = sortByDistanceFrom(userCoords, candidates);
   console.log(
     `[KrogerLocator] Candidates near ${zip}, ranked by distance:\n` +
-      ranked
-        .map(
-          r =>
-            `  ${r.distanceMiles === Infinity ? '?' : r.distanceMiles.toFixed(1)}mi — ` +
-            `${r.loc.locationId} ${r.loc.name ?? ''} (${r.loc.address?.city}, ${r.loc.address?.state})`,
-        )
-        .join('\n'),
+      ranked.map(loc => `  ${loc.locationId} ${loc.name ?? ''} (${loc.address?.city}, ${loc.address?.state})`).join('\n'),
   );
-
-  return ranked[0].loc;
+  return ranked;
 }
 
 export function createKrogerLocator(getToken: () => Promise<string>): StoreLocator {
@@ -136,14 +146,27 @@ async function findNearestStoreUncached(
     const candidates = (json.data ?? []) as KrogerLocationRecord[];
     console.log(`[KrogerLocator] zip=${zip} radius=${radius}mi -> ${candidates.length} candidate(s) from API.`);
     if (candidates.length > 0) {
-      const nearest = await pickNearest(zip, candidates);
-      const location = toStoreLocation(nearest);
-      if (location) {
+      // Walk the ranked list rather than only trying the single nearest —
+      // if the closest candidate is missing required address fields (rare,
+      // but seen for a handful of locationIds), fall back to the next-
+      // nearest candidate at this SAME radius before giving up and
+      // escalating to a wider radius, which could otherwise skip over a
+      // real, valid, closer store in favor of a farther one.
+      const ranked = await rankByDistance(zip, candidates);
+      for (const candidate of ranked) {
+        const location = toStoreLocation(candidate);
+        if (!location) {
+          console.log(
+            `[KrogerLocator] zip=${zip} -> candidate locationId=${candidate.locationId} missing required ` +
+              `address fields, trying next-nearest candidate at radius=${radius}mi.`,
+          );
+          continue;
+        }
         locationCache.set(zip, location);
         console.log(
-          `[KrogerLocator] zip=${zip} -> SELECTED locationId=${nearest.locationId} "${location.name}" ` +
+          `[KrogerLocator] zip=${zip} -> SELECTED locationId=${candidate.locationId} "${location.name}" ` +
             `${location.address}, ${location.city}, ${location.state} ${location.zip} ` +
-            `(radius=${radius}mi; reason=closest candidate by haversine distance)`,
+            `(radius=${radius}mi; reason=closest candidate by haversine distance with a complete address)`,
         );
         return location;
       }

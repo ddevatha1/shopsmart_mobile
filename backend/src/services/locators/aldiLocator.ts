@@ -86,6 +86,8 @@ export function createAldiLocator(getSessionCookie: () => Promise<string>): Stor
           zip: addr.postal_code,
           latitude: coords?.latitude,
           longitude: coords?.longitude,
+          source: 'aldi-instacart',
+          metadata: { shopId: nearest.id },
         };
 
         locationCache.set(zip, location);

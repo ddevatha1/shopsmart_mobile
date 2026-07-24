@@ -39,7 +39,7 @@ export function PlanStoreSection({ index, assignment }: Props) {
           {assignment.items.map(line => (
             <View key={line.listItemId} style={styles.itemRow}>
               <Text style={styles.itemName} numberOfLines={1}>{line.product?.name ?? line.rawText}</Text>
-              <Text style={styles.itemPrice}>{line.product ? `$${line.product.price.toFixed(2)}` : '—'}</Text>
+              <Text style={styles.itemPrice}>{typeof line.product?.price === 'number' ? `$${line.product.price.toFixed(2)}` : '—'}</Text>
             </View>
           ))}
         </View>

@@ -161,9 +161,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         <View style={styles.priceBox}>
           <View style={styles.priceRow}>
             <View style={styles.priceTag}>
-              <Text style={styles.priceText}>${product.price.toFixed(2)}</Text>
+              <Text style={styles.priceText}>{typeof product.price === 'number' ? `$${product.price.toFixed(2)}` : 'Price unavailable'}</Text>
             </View>
-            {product.originalPrice != null && (
+            {typeof product.originalPrice === 'number' && (
               <Text style={styles.originalPrice}>${product.originalPrice.toFixed(2)}</Text>
             )}
             {product.discountPercent != null && (
@@ -393,7 +393,9 @@ function RelatedCard({ product, onAddToCart, onPress }: { product: ApiProduct; o
       </View>
       <View style={{ padding: 8 }}>
         <Text numberOfLines={2} style={{ fontSize: 11.5, fontWeight: '600' }}>{product.name}</Text>
-        <Text style={{ color: colors.green, fontWeight: '700', fontSize: 12.5, marginTop: 3 }}>${product.price.toFixed(2)}</Text>
+        <Text style={{ color: colors.green, fontWeight: '700', fontSize: 12.5, marginTop: 3 }}>
+          {typeof product.price === 'number' ? `$${product.price.toFixed(2)}` : 'Price unavailable'}
+        </Text>
       </View>
     </AnimatedPressable>
   );

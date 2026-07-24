@@ -131,7 +131,7 @@ export function ProductCard({
             <View style={styles.priceTag}>
               <Text style={styles.priceText}>{typeof product.price === 'number' ? `$${product.price.toFixed(2)}` : '—'}</Text>
             </View>
-            {product.originalPrice != null && (
+            {typeof product.originalPrice === 'number' && (
               <Text style={styles.originalPrice}>${product.originalPrice.toFixed(2)}</Text>
             )}
             {product.discountPercent != null && product.discountPercent > 0 && (

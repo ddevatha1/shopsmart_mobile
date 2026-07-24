@@ -1,0 +1,23 @@
+{
+  "address": {
+    "city": "Carrollton",
+    "countryCode": "US",
+    "extraDescription": null,
+    "line1": "2150 N Josey Ln",
+    "line2": null,
+    "line3": null,
+    "postalCode": "75006",
+    "region": "TX",
+    "sublocality": null
+  },
+  "geocodedCoordinate": {
+    "lat": 32.9743051,
+    "long": -96.888423
+  },
+  "meta": {
+    "id": "269",
+    "entityType": "location"
+  },
+  "c_geomodifier": "Carrollton - Josey Lane",
+  "name": "Albertsons"
+}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { STORE_NAMES, type StoreName } from '../../models/types';
+import { STORE_NAMES, UNAVAILABLE_STORES, type StoreName } from '../../models/types';
 import { colors, storeAccents } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { radius, spacing } from '../../theme/metrics';
@@ -40,18 +40,23 @@ export function StorePickerSheet({ visible, onClose, onSelect }: Props) {
           <View style={styles.list}>
             {STORE_NAMES.map((store) => {
               const accent = storeAccents[store];
+              const unavailable = UNAVAILABLE_STORES.has(store);
               return (
                 <AnimatedPressable
                   key={store}
-                  onPress={() => onSelect(store)}
-                  style={styles.row}
-                  scaleTo={0.98}
+                  onPress={() => { if (!unavailable) onSelect(store); }}
+                  style={[styles.row, unavailable && styles.rowDisabled]}
+                  scaleTo={unavailable ? 1 : 0.98}
+                  disabled={unavailable}
                 >
                   <View style={[styles.logo, { backgroundColor: accent.background }]}>
                     <Text style={[styles.logoText, { color: accent.text }]}>{store.slice(0, 2).toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.rowLabel}>{store}</Text>
-                  <Ionicons name="chevron-forward" size={18} color={`${colors.charcoal}66`} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowLabel}>{store}</Text>
+                    {unavailable && <Text style={styles.unavailableLabel}>Temporarily unavailable</Text>}
+                  </View>
+                  {!unavailable && <Ionicons name="chevron-forward" size={18} color={`${colors.charcoal}66`} />}
                 </AnimatedPressable>
               );
             })}
@@ -94,5 +99,7 @@ const styles = StyleSheet.create({
   },
   logo: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   logoText: { fontSize: 12, fontWeight: '800' },
-  rowLabel: { ...typography.bodyMedium, flex: 1, fontSize: 14.5 },
+  rowLabel: { ...typography.bodyMedium, fontSize: 14.5 },
+  rowDisabled: { opacity: 0.75 },
+  unavailableLabel: { ...typography.caption, color: `${colors.charcoal}99`, marginTop: 2 },
 });

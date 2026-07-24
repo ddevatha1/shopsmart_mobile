@@ -13,13 +13,18 @@ import { searchSproutsWithTimeout } from './sproutsLiveScraper.ts';
 import { searchKrogerWithTimeout } from './krogerLiveScraper.ts';
 import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
+import { searchAlbertsonsWithTimeout } from './albertsonsLiveScraper.ts';
 import { correctQuery, logQueryCorrection } from './queryCorrection.ts';
 import { perfLog } from '../utils/perfLog.ts';
 import type { PreciseCoords } from './locators/types.ts';
 
 type StoreName = ApiProduct['store'];
 
-const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'];
+const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons'];
+// Stores with no live data source at all right now (see
+// albertsonsLiveScraper.ts) — their empty result is an expected
+// 'unavailable' state, never counted or displayed as an 'error'.
+const UNAVAILABLE_STORES = new Set<StoreName>(['Albertsons']);
 
 // ─── Relevance scoring ───────────────────────────────────────────────────
 // Words that don't define what a product IS — strip these when ranking.
@@ -405,11 +410,12 @@ export async function performSearch(
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
   const preciseCoords = options?.preciseCoords;
-  const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.allSettled([
+  const [traderJoesResult, sproutsResult, krogerResult, aldiResult, albertsonsResult] = await Promise.allSettled([
     timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000, preciseCoords)), // still browser-based; includes storefront visit on first run
     timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000)), // plain GraphQL API, no browser
     timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000, preciseCoords)), // REST API, no browser
     timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000)), // GraphQL API, no browser
+    timedStoreSearch('Albertsons', searchAlbertsonsWithTimeout(query, zipcode, 15_000, preciseCoords)), // no live product source yet — always resolves empty, see albertsonsLiveScraper.ts
   ]);
 
   const aggregateStart = Date.now();
@@ -466,9 +472,18 @@ export async function performSearch(
   collectStoreResult('Sprouts', sproutsResult, query);
   collectStoreResult('Kroger', krogerResult, query);
   collectStoreResult('Aldi', aldiResult, query);
+  collectStoreResult('Albertsons', albertsonsResult, query);
 
   const storeStatuses: StoreStatus[] = ALL_STORES.map(store => {
     const products = storeMap.get(store) ?? [];
+    if (products.length === 0 && UNAVAILABLE_STORES.has(store)) {
+      return {
+        store,
+        status: 'unavailable',
+        count: 0,
+        error: "Live pricing isn't available for this store yet.",
+      };
+    }
     return {
       store,
       status: products.length > 0 ? 'success' : 'error',

@@ -5,8 +5,15 @@
  * data-transfer types, same as on the web.
  */
 
-export const STORE_NAMES = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'] as const;
+export const STORE_NAMES = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons'] as const;
 export type StoreName = (typeof STORE_NAMES)[number];
+
+/** Stores with no live product data source yet (see backend's
+ * albertsonsLiveScraper.ts for why) — mirrors backend/src/services/
+ * searchService.ts's own UNAVAILABLE_STORES exactly, so the UI can label
+ * these clearly instead of letting a shopper pick one and just see zero
+ * results with no explanation. */
+export const UNAVAILABLE_STORES: ReadonlySet<StoreName> = new Set(['Albertsons']);
 
 /** The specific physical store a product listing came from — mirrors the
  * backend's StoreLocation (backend/src/types/index.ts). `latitude`/

@@ -36,4 +36,5 @@ export const storeAccents: Record<StoreName, StoreAccent> = {
   Sprouts: { background: '#D1FAE5', text: '#047857', dot: '#10B981' },
   Kroger: { background: '#E0F2FE', text: '#0369A1', dot: '#0284C7' },
   Aldi: { background: '#CFFAFE', text: '#0E7490', dot: '#0E7490' },
+  Albertsons: { background: '#EDE9FE', text: '#6D28D9', dot: '#7C3AED' },
 };

@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { STORE_NAMES, type ApiProduct, type QueryCorrectionInfo, type StoreName } from '../models/types';
+import { STORE_NAMES, UNAVAILABLE_STORES, type ApiProduct, type QueryCorrectionInfo, type StoreName } from '../models/types';
 import { useSearchStore } from '../store/searchStore';
 import { useUserStore } from '../store/userStore';
 import { useCartStore } from '../store/cartStore';
@@ -497,14 +497,14 @@ function SearchHeader({
           <FadeInState>
             <View style={styles.emptyState}>
               <View style={styles.dotsRow}>
-                {(selectedStore ? [selectedStore] : STORE_NAMES).map((s) => (
+                {(selectedStore ? [selectedStore] : STORE_NAMES.filter((s) => !UNAVAILABLE_STORES.has(s))).map((s) => (
                   <View key={s} style={[styles.storeDot, { backgroundColor: storeAccents[s].dot }]} />
                 ))}
               </View>
               <Text style={styles.emptyText}>
                 {selectedStore
                   ? `Enter a product above to browse ${selectedStore}'s inventory.`
-                  : 'Enter a product above to compare prices across all four stores near you.'}
+                  : 'Enter a product above to compare prices across nearby stores.'}
               </Text>
               {recentSearches.length === 0 && (
                 <View style={styles.suggestionRow}>

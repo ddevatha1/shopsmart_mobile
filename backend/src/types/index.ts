@@ -39,7 +39,7 @@ export interface ApiProduct {
   upc?: string;
   certifications?: string[];
   pricePerUnit?: string;
-  store: "Trader Joe's" | 'Sprouts' | 'Kroger' | 'Aldi';
+  store: "Trader Joe's" | 'Sprouts' | 'Kroger' | 'Aldi' | 'Albertsons';
   storeProductUrl?: string;
   location?: StoreLocation;
   inStock?: boolean;
@@ -81,7 +81,11 @@ export interface SearchRequest {
 
 export interface StoreStatus {
   store: ApiProduct['store'];
-  status: 'pending' | 'loading' | 'success' | 'error';
+  /** 'unavailable' is distinct from 'error': it means this store has no
+   * live data source at all right now (see albertsonsLiveScraper.ts) — an
+   * expected, permanent-for-now state, not something that broke. The UI
+   * should show it calmly ("temporarily unavailable"), not as a red error. */
+  status: 'pending' | 'loading' | 'success' | 'error' | 'unavailable';
   count?: number;
   error?: string;
 }

@@ -13,6 +13,7 @@ import {
   Manrope_800ExtraBold,
 } from '@expo-google-fonts/manrope';
 import { AppNavigator } from './src/navigation/AppNavigator';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { useCartStore } from './src/store/cartStore';
 import { useUserStore } from './src/store/userStore';
 import { useOnboardingStore } from './src/store/onboardingStore';
@@ -82,7 +83,9 @@ export default function App() {
 
   return (
     <SafeAreaProvider onLayout={onLayoutRootView}>
-      <AppNavigator />
+      <ErrorBoundary>
+        <AppNavigator />
+      </ErrorBoundary>
       <StatusBar style="dark" />
     </SafeAreaProvider>
   );

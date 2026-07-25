@@ -16,7 +16,7 @@ const FRISCO_STORE: KrogerLocationRecord = {
 };
 
 test('toStoreLocation maps a complete Kroger record, including source/metadata', () => {
-  const loc = toStoreLocation(FRISCO_STORE);
+  const loc = toStoreLocation(FRISCO_STORE, 'Kroger');
   assert.ok(loc, 'expected a StoreLocation, got undefined');
   assert.equal(loc!.address, '3205 Main St');
   assert.equal(loc!.city, 'Frisco');
@@ -28,11 +28,17 @@ test('toStoreLocation maps a complete Kroger record, including source/metadata',
   assert.equal(loc!.metadata?.locationId, '01400943');
 });
 
+test('toStoreLocation falls back to the given displayName when the record has no name', () => {
+  const loc = toStoreLocation({ ...FRISCO_STORE, name: undefined, chain: 'HART' }, 'Harris Teeter');
+  assert.equal(loc!.name, 'Harris Teeter');
+  assert.equal(loc!.metadata?.chain, 'HART', 'chain should be carried into metadata for debugging/provenance');
+});
+
 test('toStoreLocation never fabricates an address — returns undefined when required fields are missing', () => {
-  assert.equal(toStoreLocation({ locationId: '1', address: { city: 'Frisco' } }), undefined, 'missing street/state/zip');
-  assert.equal(toStoreLocation({ locationId: '2' }), undefined, 'no address object at all');
+  assert.equal(toStoreLocation({ locationId: '1', address: { city: 'Frisco' } }, 'Kroger'), undefined, 'missing street/state/zip');
+  assert.equal(toStoreLocation({ locationId: '2' }, 'Kroger'), undefined, 'no address object at all');
   assert.equal(
-    toStoreLocation({ locationId: '3', address: { addressLine1: '1 Main St', city: 'X', state: 'TX', zipCode: '' } }),
+    toStoreLocation({ locationId: '3', address: { addressLine1: '1 Main St', city: 'X', state: 'TX', zipCode: '' } }, 'Kroger'),
     undefined,
     'empty zip still counts as missing',
   );

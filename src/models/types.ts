@@ -5,7 +5,7 @@
  * data-transfer types, same as on the web.
  */
 
-export const STORE_NAMES = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons'] as const;
+export const STORE_NAMES = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons', 'Harris Teeter'] as const;
 export type StoreName = (typeof STORE_NAMES)[number];
 
 /** Stores with no live product data source yet (see backend's

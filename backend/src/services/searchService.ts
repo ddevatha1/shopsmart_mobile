@@ -10,7 +10,7 @@
  */
 import type { ApiProduct, SearchResponse, StoreStatus } from '../types/index.ts';
 import { searchSproutsWithTimeout } from './sproutsLiveScraper.ts';
-import { searchKrogerWithTimeout } from './krogerLiveScraper.ts';
+import { searchKrogerWithTimeout, searchHarrisTeeterWithTimeout } from './krogerLiveScraper.ts';
 import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
 import { searchAlbertsonsWithTimeout } from './albertsonsLiveScraper.ts';
@@ -20,7 +20,7 @@ import type { PreciseCoords } from './locators/types.ts';
 
 type StoreName = ApiProduct['store'];
 
-const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons'];
+const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons', 'Harris Teeter'];
 // Stores with no live data source at all right now (see
 // albertsonsLiveScraper.ts) — their empty result is an expected
 // 'unavailable' state, never counted or displayed as an 'error'.
@@ -203,7 +203,7 @@ export function hasDifferentHeadNoun(qWords: string[], nWords: string[]): boolea
   return false;
 }
 
-function computeRelevance(query: string, name: string): number {
+export function computeRelevance(query: string, name: string): number {
   const q = query.toLowerCase().trim();
   const n = name.toLowerCase().trim();
   const nWords = tokenizeName(n);
@@ -238,7 +238,7 @@ function computeRelevance(query: string, name: string): number {
   return score;
 }
 
-function classifyMatch(query: string, product: ApiProduct): 'direct' | 'related' {
+export function classifyMatch(query: string, product: Pick<ApiProduct, 'name' | 'category'>): 'direct' | 'related' {
   const q = query.toLowerCase().trim();
   const n = product.name.toLowerCase().trim();
   const nWords = tokenizeName(n);
@@ -410,12 +410,13 @@ export async function performSearch(
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
   const preciseCoords = options?.preciseCoords;
-  const [traderJoesResult, sproutsResult, krogerResult, aldiResult, albertsonsResult] = await Promise.allSettled([
+  const [traderJoesResult, sproutsResult, krogerResult, aldiResult, albertsonsResult, harrisTeeterResult] = await Promise.allSettled([
     timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000, preciseCoords)), // still browser-based; includes storefront visit on first run
     timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000)), // plain GraphQL API, no browser
     timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000, preciseCoords)), // REST API, no browser
     timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000)), // GraphQL API, no browser
     timedStoreSearch('Albertsons', searchAlbertsonsWithTimeout(query, zipcode, 15_000, preciseCoords)), // no live product source yet — always resolves empty, see albertsonsLiveScraper.ts
+    timedStoreSearch('Harris Teeter', searchHarrisTeeterWithTimeout(query, zipcode, 15_000, preciseCoords)), // same official Kroger API, scoped to the HART chain — see krogerLiveScraper.ts
   ]);
 
   const aggregateStart = Date.now();
@@ -473,6 +474,7 @@ export async function performSearch(
   collectStoreResult('Kroger', krogerResult, query);
   collectStoreResult('Aldi', aldiResult, query);
   collectStoreResult('Albertsons', albertsonsResult, query);
+  collectStoreResult('Harris Teeter', harrisTeeterResult, query);
 
   const storeStatuses: StoreStatus[] = ALL_STORES.map(store => {
     const products = storeMap.get(store) ?? [];

@@ -12,7 +12,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { useCartStore } from '../store/cartStore';
 import { useSearchStore } from '../store/searchStore';
 import { useUserStore } from '../store/userStore';
@@ -36,10 +36,10 @@ import { RouteMap } from '../components/RouteMap';
 import { colors, storeAccents } from '../theme/colors';
 import { spacing, radius, elevation } from '../theme/metrics';
 import { duration, easing, spring } from '../theme/motion';
-import type { RootStackParamList } from '../navigation/types';
+import type { TabParamList } from '../navigation/types';
 import type { CartItem, StoreGroup, StoreName, TripPlan } from '../models/types';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Route'>;
+type Props = BottomTabScreenProps<TabParamList, 'Route'>;
 
 // One explainer per app session (module-scoped, so it survives navigating
 // away and back within the same launch but resets on a fresh app start),
@@ -88,22 +88,21 @@ export function RouteScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
-        <AnimatedPressable
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          scaleTo={0.9}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.charcoal} />
-        </AnimatedPressable>
+        <Ionicons name="navigate-outline" size={20} color={colors.green} />
         <Text style={styles.headerTitle}>Your Route</Text>
-        <View style={{ width: 40 }} />
       </View>
 
       {items.length === 0 ? (
         <View style={styles.centerState}>
           <Ionicons name="cart-outline" size={40} color={`${colors.charcoal}33`} />
-          <Text style={styles.emptyText}>Your cart is empty — add items to plan a route.</Text>
+          <Text style={styles.emptyText}>Add items to your list first — we&apos;ll find the cheapest trip once you have something to shop for.</Text>
+          <AnimatedPressable
+            onPress={() => navigation.navigate('Cart')}
+            style={styles.goToListButton}
+            scaleTo={0.97}
+          >
+            <Text style={styles.goToListText}>Go to your list</Text>
+          </AnimatedPressable>
         </View>
       ) : groups.length === 0 ? (
         <View style={styles.centerState}>
@@ -730,15 +729,17 @@ function formatDuration(minutes: number): string {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.white },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
   },
-  backButton: {
-    width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.panelBg,
+  headerTitle: { fontWeight: '700', fontSize: 18, color: colors.charcoal },
+  centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.md },
+  goToListButton: {
+    backgroundColor: colors.green, borderRadius: radius.md,
+    paddingVertical: spacing.md, paddingHorizontal: spacing.xl, minHeight: 46,
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: { fontWeight: '700', fontSize: 16, color: colors.charcoal },
-  centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.md },
+  goToListText: { color: colors.white, fontWeight: '600', fontSize: 14 },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13.5, textAlign: 'center' },
   loadingText: { color: `${colors.charcoal}80`, fontSize: 13.5, textAlign: 'center' },
   errorText: { color: colors.errorRed, fontSize: 13.5, textAlign: 'center' },

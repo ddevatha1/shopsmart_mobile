@@ -14,9 +14,9 @@ interface Props {
 }
 
 /**
- * The store picker for "Search Within One Store" — a plain list of the
- * four supported retailers (see STORE_NAMES; expandable later without
- * touching this component, since it just maps over the constant). Same
+ * The store picker for "Search Within One Store" — a plain list of every
+ * supported retailer (see STORE_NAMES; expandable later without touching
+ * this component, since it just maps over the constant). Same
  * bottom-sheet shell as the other quick-pick sheets in this app
  * (ComparisonFilterModal, the old NotSatisfiedSheet) for a consistent feel.
  */

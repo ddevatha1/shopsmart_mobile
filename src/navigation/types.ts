@@ -1,3 +1,4 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { ApiProduct } from '../models/types';
 import type { ProductGroup } from '../services/comparisonService';
 
@@ -8,7 +9,11 @@ export type RootStackParamList = {
    * Reached on first launch (signed out) and again from Profile's
    * "Restart Onboarding" (signed in — see ProfileScreen). */
   Onboarding: undefined;
-  Tabs: undefined;
+  /** NavigatorScreenParams so a top-level screen (e.g. Planner) can jump
+   * straight into a specific tab — `navigate('Tabs', { screen: 'Route' })`
+   * — since Route now lives inside the tab navigator rather than as its
+   * own top-level stack screen. */
+  Tabs: NavigatorScreenParams<TabParamList> | undefined;
   /** Stage 2 — the store comparison hero screen for one semantic product
    * group (see ProductGroupCard / SearchScreen). `allDirectProducts` is the
    * whole direct-match pool from the search that led here (every variety,
@@ -27,10 +32,6 @@ export type RootStackParamList = {
    *     dismiss back to whatever screen pushed Auth.
    */
   Auth: { initialMode?: 'signIn' | 'signUp'; onSuccess?: 'goBack' | 'toDashboard' } | undefined;
-  /** Reads the cart directly from useCartStore rather than taking it as a
-   * param — same pattern as every other screen reading shared state from
-   * Zustand instead of threading it through navigation. */
-  Route: undefined;
   /** The Smart Shopping Planner — no params; reads ZIP/preferences from
    * useUserStore/plannerPreferenceService the same way every other screen
    * reads shared state instead of threading it through navigation. */
@@ -40,5 +41,12 @@ export type RootStackParamList = {
 export type TabParamList = {
   Search: undefined;
   Cart: undefined;
+  /** A persistent bottom-nav destination now, not a screen pushed on top
+   * of the stack — reads the cart directly from useCartStore rather than
+   * taking it as a param, same pattern as every other screen reading
+   * shared state from Zustand instead of threading it through navigation.
+   * Shows an empty-state CTA (rather than a blank map) when the cart has
+   * nothing to route yet, per "don't surface the route too early." */
+  Route: undefined;
   Profile: undefined;
 };

@@ -13,7 +13,7 @@
  *     app knows (or the shopper has previously saved) a zip, to also warm
  *     the per-store nearest-location caches for that specific area.
  */
-import { warmKroger } from './krogerLiveScraper.ts';
+import { warmKroger, warmHarrisTeeter } from './krogerLiveScraper.ts';
 import { warmAldi } from './aldiLiveScraper.ts';
 import { warmSprouts } from './sproutsLiveScraper.ts';
 import { warmTraderJoes } from './traderJoesLiveScraper.ts';
@@ -78,6 +78,9 @@ function buildTasks(zipcode?: string): WarmupTask[] {
     // pre-fetches the real store-location directory so the first search
     // that touches Albertsons isn't slowed by it.
     { store: 'Albertsons', run: () => warmAlbertsonsDirectory() },
+    // Same OAuth token as Kroger (already warmed above) — this only pays
+    // the Harris Teeter-specific nearest-location lookup.
+    { store: 'Harris Teeter', run: () => warmHarrisTeeter(zipcode) },
   ];
 }
 

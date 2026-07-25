@@ -5,3 +5,4 @@ node_modules/
 # scraper-generated session state (live cookies, not source)
 .sprouts-session.json
 .traderjoes-session.json
+.browser-sessions/

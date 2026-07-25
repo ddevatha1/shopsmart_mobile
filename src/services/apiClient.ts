@@ -10,11 +10,11 @@ import type { SearchResponse, StoreLocation, TripOrigin, TripPlan } from '../mod
  *   - Physical device on the same network: use your machine's LAN IP
  * Override via app.json's `expo.extra.apiBaseUrl`, or the
  * EXPO_PUBLIC_API_BASE_URL env var (Expo inlines EXPO_PUBLIC_* at build time):
- *   EXPO_PUBLIC_API_BASE_URL=http://192.168.1.23:3001 npx expo start
+ *   EXPO_PUBLIC_API_BASE_URL=http://192.168.68.65:3001 npx expo start
  */
 export class ApiError extends Error {}
 
-const DEFAULT_BASE_URL = 'http://localhost:3001';
+const DEFAULT_BASE_URL = 'http://192.168.68.65:3001';
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);

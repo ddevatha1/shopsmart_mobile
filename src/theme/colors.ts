@@ -37,4 +37,5 @@ export const storeAccents: Record<StoreName, StoreAccent> = {
   Kroger: { background: '#E0F2FE', text: '#0369A1', dot: '#0284C7' },
   Aldi: { background: '#CFFAFE', text: '#0E7490', dot: '#0E7490' },
   Albertsons: { background: '#EDE9FE', text: '#6D28D9', dot: '#7C3AED' },
+  'Harris Teeter': { background: '#FEF3C7', text: '#B45309', dot: '#F59E0B' },
 };

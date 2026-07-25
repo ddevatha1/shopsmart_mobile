@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { AnimatedPressable } from '../AnimatedPressable';
 import { AdvisorCard } from '../AdvisorCard';
 import { ProductCard } from '../ProductCard';
 import { StoreSection } from './StoreSection';
@@ -74,6 +76,10 @@ export function ComparisonView({
 
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [filters, setFilters] = useState<ComparisonFilters>(defaultComparisonFilters());
+  // Every store's full row of listings is a lot to put in front of a
+  // shopper who just wants the single best pick — collapsed by default,
+  // one tap away via "Compare stores" below the hero card.
+  const [storesExpanded, setStoresExpanded] = useState(false);
   const activeFilterCount = countActiveComparisonFilters(filters);
 
   const filterSchema = useMemo(() => buildFilterSchema(group.listings), [group.listings]);
@@ -144,19 +150,40 @@ export function ComparisonView({
         </View>
       )}
 
-      {storeSections.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No products match your filters — try adjusting them.</Text>
+      {/* The full per-store breakdown stays a tap away rather than
+       * appearing automatically — a shopper who just wants the single best
+       * pick from `bestValue` above shouldn't have to scroll past every
+       * store's whole aisle first. With no hero pick to lead with (e.g. an
+       * empty filtered set), there's nothing to gate, so the section below
+       * — including its own "no matches" message — always renders. */}
+      {bestValue && (
+        <View style={styles.compareStoresRow}>
+          <AnimatedPressable
+            onPress={() => setStoresExpanded((e) => !e)}
+            scaleTo={0.97}
+            style={styles.compareStoresLink}
+          >
+            <Text style={styles.compareStoresText}>{storesExpanded ? 'Hide stores' : 'Compare stores'}</Text>
+            <Ionicons name={storesExpanded ? 'chevron-down' : 'chevron-forward'} size={14} color={colors.green} />
+          </AnimatedPressable>
         </View>
-      ) : (
-        storeSections.map((section) => (
-          <StoreSection
-            key={section.store}
-            section={section}
-            onPressListing={handlePressListing}
-            onAddToCart={onAddToCart}
-          />
-        ))
+      )}
+
+      {(storesExpanded || !bestValue) && (
+        storeSections.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>No products match your filters — try adjusting them.</Text>
+          </View>
+        ) : (
+          storeSections.map((section) => (
+            <StoreSection
+              key={section.store}
+              section={section}
+              onPressListing={handlePressListing}
+              onAddToCart={onAddToCart}
+            />
+          ))
+        )
       )}
 
       <RefinementSection
@@ -193,6 +220,9 @@ const styles = StyleSheet.create({
   },
   heroCardWrap: { width: 232 },
   advisorSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.xl },
+  compareStoresRow: { alignItems: 'center', marginBottom: spacing.lg },
+  compareStoresLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
+  compareStoresText: { color: colors.green, fontWeight: '700', fontSize: 13.5 },
   emptyState: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: spacing.lg },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13, textAlign: 'center' },
 });

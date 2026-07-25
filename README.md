@@ -44,7 +44,7 @@ npx expo start --ios
 EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3001 npx expo start --android
 
 # Physical device on the same Wi-Fi network — use your machine's LAN IP:
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.23:3001 npx expo start
+EXPO_PUBLIC_API_BASE_URL=http://192.168.68.65:3001 npx expo start
 ```
 
 If you omit `EXPO_PUBLIC_API_BASE_URL`, it defaults to `http://localhost:3001`,
@@ -68,7 +68,7 @@ backend/          Standalone Express + TypeScript API server (own package.json)
   src/
     index.ts        App entrypoint — CORS, JSON body parsing, listens on PORT (3001)
     routes/          POST /api/search — relevance scoring, food filtering, store fan-out
-    services/        Live store integrations: Trader Joe's, Sprouts, Kroger, Aldi
+    services/        Live store integrations: Trader Joe's, Sprouts, Kroger, Aldi, Albertsons, Harris Teeter
     utils/           textFormat, ttlCache, withTimeout, groceryFallbackImage
     types/           ApiProduct, SearchResponse, StoreStatus, etc.
 
@@ -128,7 +128,8 @@ every Expo project).
 ## Features implemented
 
 Product search, live multi-store price comparison (Trader Joe's, Sprouts,
-Kroger, Aldi), store filtering, product detail with related products, cart
+Kroger, Aldi, Harris Teeter, plus Albertsons for store locations only),
+store filtering, product detail with related products, cart
 (add/update/remove/persist, trip-time estimate, per-store subtotal), sign
 in/sign up/sign out (localStorage-equivalent fake auth, matched exactly,
 including the web's quirk where search history doesn't survive a sign-out/

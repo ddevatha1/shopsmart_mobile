@@ -1,10 +1,26 @@
 /**
- * Kroger live price fetcher.
+ * Kroger-family live price fetcher — covers both the Kroger banner and
+ * Harris Teeter, which turn out to be the exact same official API.
  *
  * Uses the official Kroger Product API (product.compact scope):
  *   1. OAuth2 client_credentials → access token (cached 25 min)
  *   2. Locations API → nearest locationId for user's zip code (cached 1 hr)
  *   3. Products API → real prices for up to 50 products (cached 5 min)
+ *
+ * Harris Teeter is a Kroger Co. banner, and — verified live against the real
+ * API, not assumed — it is served by exactly this same OAuth client,
+ * exactly this same Locations/Products API, with no extra configuration:
+ * Harris Teeter locations simply carry `chain: "HART"` in the Locations API
+ * response instead of `chain: "KROGER"`, and product search against a
+ * Harris Teeter `locationId` returns real Harris Teeter-branded products,
+ * real prices, real promo pricing, and real images through the identical
+ * `/v1/products` endpoint. So this file adds Harris Teeter as a second thin
+ * banner, not a second scraper: one shared OAuth token, one shared search/
+ * normalization pipeline, parameterized by which banner's `chain` code and
+ * display name to use. See `locators/krogerLocator.ts`'s header comment for
+ * the live-verified mislabeling bug this also fixes (an unfiltered locator
+ * would resolve a Charlotte, NC "Kroger" search to the nearest Harris
+ * Teeter store and report it as Kroger).
  */
 
 import type { ApiProduct, StoreLocation } from '../types/index.ts';
@@ -13,7 +29,7 @@ import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createKrogerLocator } from './locators/krogerLocator.ts';
-import type { PreciseCoords } from './locators/types.ts';
+import type { PreciseCoords, StoreLocator } from './locators/types.ts';
 
 const KROGER_API = 'https://api.kroger.com/v1';
 
@@ -61,10 +77,32 @@ async function getToken(): Promise<string> {
   });
 }
 
-// ── Store locator ─────────────────────────────────────────────────────────────
-// See locators/krogerLocator.ts — resolves the nearest real Kroger location
-// via Kroger's own Locations API and ranks candidates by actual distance.
-const krogerLocator = createKrogerLocator(getToken);
+// ── Banners ───────────────────────────────────────────────────────────────────
+// Every Kroger Co. banner this app searches — each is just a `chain` code
+// on the same official API, not a different integration. Adding another
+// verified banner (e.g. Ralphs, Fred Meyer, King Soopers) later is a new
+// entry here, not new code.
+interface KrogerBanner {
+  storeName: ApiProduct['store'];
+  /** Kroger's own Locations API `chain` code for this banner — verified
+   * live, not guessed (see krogerLocator.ts's header comment). */
+  chain: string;
+  /** Namespaces product ids and cache keys per banner so "Kroger" and
+   * "Harris Teeter" results for the same query/zip never collide. */
+  idSlug: string;
+}
+
+const KROGER_BANNER: KrogerBanner = { storeName: 'Kroger', chain: 'KROGER', idSlug: 'kroger' };
+const HARRIS_TEETER_BANNER: KrogerBanner = { storeName: 'Harris Teeter', chain: 'HART', idSlug: 'harris-teeter' };
+
+// ── Store locators ───────────────────────────────────────────────────────────
+// See locators/krogerLocator.ts — resolves the nearest real store for a
+// given banner via Kroger's own Locations API and ranks candidates by
+// actual distance. One locator instance per banner (each scoped to its own
+// `chain` code) — sharing one locator across banners is exactly the
+// mislabeling bug this file's header comment describes.
+const krogerLocator = createKrogerLocator(getToken, KROGER_BANNER.chain, KROGER_BANNER.storeName);
+const harrisTeeterLocator = createKrogerLocator(getToken, HARRIS_TEETER_BANNER.chain, HARRIS_TEETER_BANNER.storeName);
 
 // ── Product result cache ──────────────────────────────────────────────────────
 const productCache = new TtlCache<ApiProduct[]>(5 * 60 * 1000); // 5 min
@@ -110,7 +148,7 @@ function getBestImageUrl(images?: KrogerImage[]): string | undefined {
   return sizes[0]?.url;
 }
 
-function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined): ApiProduct | null {
+function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined, banner: KrogerBanner): ApiProduct | null {
   const description = stripTrademarks(p.description ?? '').trim();
   if (!description) return null;
 
@@ -129,7 +167,7 @@ function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined)
   const reviewCount = 20 + (seed % 2000);
 
   return {
-    id: `kroger-${p.productId}`,
+    id: `${banner.idSlug}-${p.productId}`,
     name: toTitleCase(description),
     brand: p.brand ? toTitleCase(stripTrademarks(p.brand)) : '',
     price,
@@ -140,14 +178,20 @@ function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined)
     reviewCount,
     size: item?.size ?? '',
     isLiveData: true,
-    store: 'Kroger',
+    store: banner.storeName,
     location,
     inStock: true,
   };
 }
 
-// ── Main search function ──────────────────────────────────────────────────────
-export async function searchKroger(
+// ── Shared search implementation ────────────────────────────────────────────
+// Both searchKroger and searchHarrisTeeter are thin wrappers around this —
+// same OAuth token, same Products API call shape, same normalization; only
+// the banner (and therefore which locator/chain/store-name/id-prefix) ever
+// differs.
+async function searchKrogerBanner(
+  banner: KrogerBanner,
+  locator: StoreLocator,
   query: string,
   zipcode: string,
   preciseCoords?: PreciseCoords,
@@ -155,23 +199,24 @@ export async function searchKroger(
   // Precise coordinates can change which real store this resolves to (see
   // krogerLocator.ts) — folded into the cache key so a shopper with a GPS
   // fix never gets served another shopper's centroid-based result for the
-  // same zip, or vice versa.
+  // same zip, or vice versa. Banner is namespaced in too, so Kroger and
+  // Harris Teeter results for the same query/zip never share a cache slot.
   const cacheKey = preciseCoords
-    ? `${query.toLowerCase().trim()}|${zipcode}|${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}`
-    : `${query.toLowerCase().trim()}|${zipcode}`;
+    ? `${banner.idSlug}|${query.toLowerCase().trim()}|${zipcode}|${preciseCoords.latitude.toFixed(2)},${preciseCoords.longitude.toFixed(2)}`
+    : `${banner.idSlug}|${query.toLowerCase().trim()}|${zipcode}`;
   const cached = productCache.get(cacheKey);
   if (cached) {
-    console.log(`[Kroger] Cache hit for "${query}"`);
+    console.log(`[${banner.storeName}] Cache hit for "${query}"`);
     return cached;
   }
 
-  console.log(`[Kroger] Live fetch for "${query}" @ ${zipcode}`);
+  console.log(`[${banner.storeName}] Live fetch for "${query}" @ ${zipcode}`);
 
   const token = await getToken();
-  const storeLocation = await krogerLocator.findNearestStore(zipcode, preciseCoords);
+  const storeLocation = await locator.findNearestStore(zipcode, preciseCoords);
 
   if (!storeLocation) {
-    console.log(`[Kroger] No Kroger location found near ${zipcode}`);
+    console.log(`[${banner.storeName}] No ${banner.storeName} location found near ${zipcode}`);
     return [];
   }
 
@@ -187,21 +232,21 @@ export async function searchKroger(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Kroger products API failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`${banner.storeName} products API failed (${res.status}): ${text.slice(0, 200)}`);
   }
 
   const json = await res.json();
   const raw = (json.data ?? []) as KrogerProduct[];
-  console.log(`[Kroger] Raw: ${raw.length} products from API`);
+  console.log(`[${banner.storeName}] Raw: ${raw.length} products from API`);
 
   const products = raw
-    .map(p => mapKrogerProduct(p, storeLocation))
+    .map(p => mapKrogerProduct(p, storeLocation, banner))
     .filter((p): p is ApiProduct => p !== null);
 
-  console.log(`[Kroger] ${products.length} mapped products for "${query}"`);
+  console.log(`[${banner.storeName}] ${products.length} mapped products for "${query}"`);
   // Debug output — trace the ZIP → store → product-count pipeline at a glance.
   console.log(
-    `[Kroger][debug] zip=${zipcode} -> store="${storeLocation.name}" ` +
+    `[${banner.storeName}][debug] zip=${zipcode} -> store="${storeLocation.name}" ` +
       `id=${storeLocation.storeId} address="${storeLocation.address}, ${storeLocation.city}, ` +
       `${storeLocation.state} ${storeLocation.zip}" ` +
       `lat=${storeLocation.latitude ?? '?'} lng=${storeLocation.longitude ?? '?'} products=${products.length}`,
@@ -210,7 +255,11 @@ export async function searchKroger(
   return products;
 }
 
-// ── Timeout wrapper ───────────────────────────────────────────────────────────
+// ── Kroger ───────────────────────────────────────────────────────────────────
+export function searchKroger(query: string, zipcode: string, preciseCoords?: PreciseCoords): Promise<ApiProduct[]> {
+  return searchKrogerBanner(KROGER_BANNER, krogerLocator, query, zipcode, preciseCoords);
+}
+
 export function searchKrogerWithTimeout(
   query: string,
   zipcode: string,
@@ -220,7 +269,6 @@ export function searchKrogerWithTimeout(
   return withTimeout(searchKroger(query, zipcode, preciseCoords), timeoutMs, 'Kroger search');
 }
 
-// ── Warm-up ────────────────────────────────────────────────────────────────
 // Pays the OAuth2 token round-trip (and, once a zip is known, the nearest-
 // store lookup) at app-startup time instead of on the first real search —
 // both populate the same module-level caches `searchKroger` already checks,
@@ -231,4 +279,26 @@ export function searchKrogerWithTimeout(
 export async function warmKroger(zip?: string): Promise<void> {
   await getToken();
   if (zip) await krogerLocator.findNearestStore(zip);
+}
+
+// ── Harris Teeter ────────────────────────────────────────────────────────────
+// A Kroger Co. banner served by the exact same official API as Kroger
+// itself (see this file's header comment) — everything below is a thin
+// pass-through into the shared implementation above, not a new scraper.
+export function searchHarrisTeeter(query: string, zipcode: string, preciseCoords?: PreciseCoords): Promise<ApiProduct[]> {
+  return searchKrogerBanner(HARRIS_TEETER_BANNER, harrisTeeterLocator, query, zipcode, preciseCoords);
+}
+
+export function searchHarrisTeeterWithTimeout(
+  query: string,
+  zipcode: string,
+  timeoutMs: number,
+  preciseCoords?: PreciseCoords,
+): Promise<ApiProduct[]> {
+  return withTimeout(searchHarrisTeeter(query, zipcode, preciseCoords), timeoutMs, 'Harris Teeter search');
+}
+
+export async function warmHarrisTeeter(zip?: string): Promise<void> {
+  await getToken();
+  if (zip) await harrisTeeterLocator.findNearestStore(zip);
 }

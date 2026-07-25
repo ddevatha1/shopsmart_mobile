@@ -39,7 +39,7 @@ export interface ApiProduct {
   upc?: string;
   certifications?: string[];
   pricePerUnit?: string;
-  store: "Trader Joe's" | 'Sprouts' | 'Kroger' | 'Aldi' | 'Albertsons';
+  store: "Trader Joe's" | 'Sprouts' | 'Kroger' | 'Aldi' | 'Albertsons' | 'Harris Teeter';
   storeProductUrl?: string;
   location?: StoreLocation;
   inStock?: boolean;

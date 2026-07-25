@@ -13,12 +13,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
-import type { ApiProduct, QueryCorrectionInfo, StoreName } from '../models/types';
+import { useNavigation } from '@react-navigation/native';
+import { STORE_NAMES, UNAVAILABLE_STORES, type ApiProduct, type QueryCorrectionInfo, type StoreName } from '../models/types';
 import { useSearchStore } from '../store/searchStore';
 import { useUserStore } from '../store/userStore';
-import { cartItemCount, useCartStore } from '../store/cartStore';
+import { useCartStore } from '../store/cartStore';
 import { useStoreModeStore } from '../store/storeModeStore';
 import { ProductGroupCard } from '../components/ProductGroupCard';
 import { ProductCard } from '../components/ProductCard';
@@ -42,20 +41,17 @@ import {
   type ProductGroup,
 } from '../services/comparisonService';
 import { getCurrentCoordinates, type Coordinates } from '../services/locationService';
-import { colors } from '../theme/colors';
+import { colors, storeAccents } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
 import { spacing, radius } from '../theme/metrics';
-import type { RootStackParamList, TabParamList } from '../navigation/types';
+import type { RootStackParamList } from '../navigation/types';
 
-type SearchNavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<TabParamList>,
-  NativeStackNavigationProp<RootStackParamList>
->;
-
-// The example searches shown in the hero for a shopper with no history yet
-// — deliberately just four common, unambiguous grocery items rather than a
-// long list, per "minimal text, strong primary actions."
-const POPULAR = ['Milk', 'Apples', 'Chicken', 'Coffee'];
+const POPULAR = ['Organic Milk', 'Avocados', 'Chicken Breast', 'Almond Butter', 'Sourdough Bread'];
+// Shown once, only to a shopper who has genuinely never searched before
+// (see SearchHeader's `recentSearches.length === 0` check) — "let the user
+// perform the main action" rather than explain it, per the onboarding
+// system's "teach only what's needed right now" principle.
+const FIRST_SEARCH_SUGGESTIONS = ['Milk', 'Eggs', 'Chicken'];
 
 /** Shared entrance treatment for the two empty states below (initial
  * prompt, no-results) — a state that just appeared should feel revealed,
@@ -77,7 +73,7 @@ function FadeInState({ children }: { children: React.ReactNode }) {
  * results grid. The desktop grid (`sm:grid-cols-2 xl:grid-cols-3`) becomes
  * a responsive 2-column grid sized for phones. */
 export function SearchScreen() {
-  const navigation = useNavigation<SearchNavigationProp>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [query, setQuery] = useState('');
   // Local, instant feedback for a query that's clearly not grocery-related
   // (see utils/searchValidation) — set on submit, before any network
@@ -155,10 +151,6 @@ export function SearchScreen() {
   const { hasSearched, loading, error, activeQuery, correction, search } = useSearchStore();
   const products = useSearchStore((s) => s.products);
   const addToCart = useCartStore((s) => s.addToCart);
-  // The Home screen's one glimpse of the list — a compact summary card, not
-  // the list itself, so a shopper mid-search never has to scroll past a
-  // full checklist to keep searching. Full management lives on the List tab.
-  const listItemCount = useCartStore((s) => cartItemCount(s.items));
 
   const canSubmit = query.trim().length > 0 && zipcode.length === 5;
   // Stage 1 shows every direct match, unfiltered — no store/deal/rating
@@ -296,9 +288,8 @@ export function SearchScreen() {
             onClearStore={() => setSelectedStore(null)}
             correction={correction}
             onSearchOriginal={searchOriginal}
+            onOpenPlanner={() => navigation.navigate('Planner')}
             onQuickSearch={runSearch}
-            listItemCount={listItemCount}
-            onOpenList={() => navigation.navigate('Cart')}
           />
           <ComparisonView
             group={combinedGroup}
@@ -352,9 +343,8 @@ export function SearchScreen() {
             onClearStore={() => setSelectedStore(null)}
             correction={correction}
             onSearchOriginal={searchOriginal}
+            onOpenPlanner={() => navigation.navigate('Planner')}
             onQuickSearch={runSearch}
-            listItemCount={listItemCount}
-            onOpenList={() => navigation.navigate('Cart')}
           />
         }
         refreshControl={<RefreshControl refreshing={hasSearched && loading} onRefresh={handleRefresh} tintColor={colors.green} />}
@@ -430,26 +420,23 @@ interface SearchHeaderProps {
   onClearStore: () => void;
   correction: QueryCorrectionInfo | null;
   onSearchOriginal: (original: string) => void;
+  onOpenPlanner: () => void;
   onQuickSearch: (term: string) => void;
-  listItemCount: number;
-  onOpenList: () => void;
 }
 
 function SearchHeader({
   query, setQuery, invalidQueryMessage, canSubmit, loading, onSubmit,
   hasSearched, error, displayedCount, totalProductCount, recentSearches, advisorInsight,
   onSeeProduct, onAddToCart, selectedStore, onOpenStorePicker, onClearStore,
-  correction, onSearchOriginal, onQuickSearch, listItemCount, onOpenList,
+  correction, onSearchOriginal, onOpenPlanner, onQuickSearch,
 }: SearchHeaderProps) {
   const chipTerms = recentSearches.length > 0 ? recentSearches : POPULAR;
   const chipLabel = recentSearches.length > 0 ? 'Recent:' : 'Popular:';
   return (
     <>
       <View style={styles.hero}>
-        <Text style={styles.wordmark}>
-          Shop<Text style={{ color: colors.green }}>Smart</Text>
-        </Text>
-        <Text style={styles.heroTitle}>What are you shopping for today?</Text>
+        <Text style={styles.heroTitle}>Compare grocery prices, instantly</Text>
+        <Text style={styles.heroSubtitle}>Search Trader Joe&apos;s, Sprouts, Kroger, Aldi, Albertsons & Harris Teeter near you.</Text>
 
         <View style={styles.searchCard}>
           <TextInput
@@ -482,7 +469,7 @@ function SearchHeader({
             {chipTerms.map((term) => (
               <AnimatedPressable
                 key={term}
-                onPress={() => onQuickSearch(term)}
+                onPress={() => setQuery(term)}
                 scaleTo={0.94}
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
               >
@@ -493,7 +480,7 @@ function SearchHeader({
         </View>
       </View>
 
-      {listItemCount > 0 && <ShoppingListSummaryCard count={listItemCount} onPress={onOpenList} />}
+      <PlannerEntryCard onPress={onOpenPlanner} />
 
       {advisorInsight && (
         <View style={styles.advisorSlot}>
@@ -504,6 +491,38 @@ function SearchHeader({
       <View style={styles.body}>
         {hasSearched && !loading && error == null && correction && (
           <DidYouMeanBanner correction={correction} onSearchOriginal={onSearchOriginal} />
+        )}
+
+        {!hasSearched && (
+          <FadeInState>
+            <View style={styles.emptyState}>
+              <View style={styles.dotsRow}>
+                {(selectedStore ? [selectedStore] : STORE_NAMES.filter((s) => !UNAVAILABLE_STORES.has(s))).map((s) => (
+                  <View key={s} style={[styles.storeDot, { backgroundColor: storeAccents[s].dot }]} />
+                ))}
+              </View>
+              <Text style={styles.emptyText}>
+                {selectedStore
+                  ? `Enter a product above to browse ${selectedStore}'s inventory.`
+                  : 'Enter a product above to compare prices across nearby stores.'}
+              </Text>
+              {recentSearches.length === 0 && (
+                <View style={styles.suggestionRow}>
+                  <Text style={styles.suggestionLabel}>Try searching:</Text>
+                  {FIRST_SEARCH_SUGGESTIONS.map((term) => (
+                    <AnimatedPressable
+                      key={term}
+                      onPress={() => onQuickSearch(term)}
+                      scaleTo={0.95}
+                      style={styles.suggestionChip}
+                    >
+                      <Text style={styles.suggestionChipText}>{term}</Text>
+                    </AnimatedPressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          </FadeInState>
         )}
 
         {hasSearched && loading && <SearchProgress />}
@@ -536,20 +555,17 @@ function SearchHeader({
   );
 }
 
-/** Home's one glimpse of the shopping list — a compact summary, not the
- * list itself, so a shopper who's mid-search is never made to scroll past a
- * full checklist. Taps through to the List tab, where the list, the
- * category checklist, and the "Find Best Prices" plan-my-trip action all
- * live (see CartScreen). */
-function ShoppingListSummaryCard({ count, onPress }: { count: number; onPress: () => void }) {
+/** Entry point into the Smart Shopping Planner — mirrors the card
+ * shopsmart_web's home page renders right below its hero search section. */
+function PlannerEntryCard({ onPress }: { onPress: () => void }) {
   return (
-    <AnimatedPressable onPress={onPress} style={styles.listSummaryCard} scaleTo={0.98}>
-      <View style={styles.listSummaryIconBadge}>
-        <Text style={styles.listSummaryEmoji}>📝</Text>
+    <AnimatedPressable onPress={onPress} style={styles.plannerCard} scaleTo={0.98}>
+      <View style={styles.plannerIconBadge}>
+        <Ionicons name="clipboard-outline" size={20} color={colors.green} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.listSummaryTitle}>Shopping List • {count} item{count !== 1 ? 's' : ''}</Text>
-        <Text style={styles.listSummarySubtitle}>Find the best prices →</Text>
+        <Text style={styles.plannerTitle}>Smart Shopping Planner</Text>
+        <Text style={styles.plannerSubtitle}>Paste your whole grocery list — get the best route, stores, and prices, instantly.</Text>
       </View>
       <Ionicons name="chevron-forward" size={16} color={`${colors.charcoal}4d`} />
     </AnimatedPressable>
@@ -559,8 +575,8 @@ function ShoppingListSummaryCard({ count, onPress }: { count: number; onPress: (
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.white },
   hero: { backgroundColor: colors.mint, padding: spacing.xl, paddingBottom: spacing.xxl },
-  wordmark: { fontSize: 15, fontWeight: '800', color: colors.charcoal, marginBottom: spacing.sm },
-  heroTitle: { fontSize: 24, fontWeight: '800', color: colors.charcoal, lineHeight: 29 },
+  heroTitle: { fontSize: 26, fontWeight: '800', color: colors.charcoal, lineHeight: 30 },
+  heroSubtitle: { color: `${colors.charcoal}99`, fontSize: 14, marginTop: spacing.sm },
   searchCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.lg, gap: spacing.sm },
   advisorSlot: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   input: {
@@ -581,16 +597,21 @@ const styles = StyleSheet.create({
   popularTerm: { color: colors.green, fontSize: 11.5, fontWeight: '500' },
   body: { paddingTop: spacing.xl },
   emptyState: { alignItems: 'center', paddingVertical: 40, gap: spacing.sm },
+  dotsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  storeDot: { width: 10, height: 10, borderRadius: 5 },
   emptyTitle: { color: `${colors.charcoal}80`, fontWeight: '600', fontSize: 14 },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13, textAlign: 'center' },
+  suggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md },
+  suggestionLabel: { color: `${colors.charcoal}80`, fontSize: 12.5, fontWeight: '600' },
+  suggestionChip: { backgroundColor: colors.mint, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2 },
+  suggestionChipText: { color: colors.green, fontSize: 12.5, fontWeight: '700' },
   hintSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
-  listSummaryCard: {
+  plannerCard: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray,
     borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.lg, marginTop: -spacing.lg,
   },
-  listSummaryIconBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
-  listSummaryEmoji: { fontSize: 18 },
-  listSummaryTitle: { color: colors.charcoal, fontWeight: '700', fontSize: 14 },
-  listSummarySubtitle: { color: colors.green, fontWeight: '600', fontSize: 12, marginTop: 2 },
+  plannerIconBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center' },
+  plannerTitle: { color: colors.charcoal, fontWeight: '700', fontSize: 14 },
+  plannerSubtitle: { color: `${colors.charcoal}80`, fontSize: 12, marginTop: 2 },
 });

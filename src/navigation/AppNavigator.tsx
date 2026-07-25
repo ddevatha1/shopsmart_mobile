@@ -29,14 +29,9 @@ const navTheme: Theme = {
   colors: { ...DefaultTheme.colors, primary: colors.green, background: colors.white },
 };
 
-/** Bottom tabs (Shop/List/Route/Profile) — mirrors the web's persistent
- * header icons + slide-over drawers, converted to primary mobile navigation
- * destinations per the instructions ("Desktop sidebar → Bottom navigation").
- * Labels are deliberately simpler than the underlying route names (`Search`
- * -> "Shop", `Cart` -> "List") — a presentational rename only, so none of
- * the internal navigation/store plumbing keyed on those route names has to
- * change. Route is a persistent tab rather than a screen pushed on top of
- * the cart, so a shopper always has a one-tap way back to their trip. */
+/** Bottom tabs (Search/Cart/Profile) — mirrors the web's persistent header
+ * icons + slide-over drawers, converted to primary mobile navigation
+ * destinations per the instructions ("Desktop sidebar → Bottom navigation"). */
 function Tabs() {
   const count = useCartStore((s) => cartItemCount(s.items));
 
@@ -51,34 +46,19 @@ function Tabs() {
       <Tab.Screen
         name="Search"
         component={SearchScreen}
-        options={{
-          tabBarLabel: 'Shop',
-          tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} />,
-        }}
+        options={{ tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} /> }}
       />
       <Tab.Screen
         name="Cart"
         component={CartScreen}
         options={{
-          tabBarLabel: 'List',
           tabBarIcon: ({ color, size }) => <CartTabIcon color={color} size={size} count={count} />,
-        }}
-      />
-      <Tab.Screen
-        name="Route"
-        component={RouteScreen}
-        options={{
-          tabBarLabel: 'Route',
-          tabBarIcon: ({ color, size }) => <Ionicons name="navigate-outline" size={size} color={color} />,
         }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
-        }}
+        options={{ tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} /> }}
       />
     </Tab.Navigator>
   );
@@ -146,6 +126,7 @@ export function AppNavigator() {
         <Stack.Screen name="Tabs" component={Tabs} options={{ animation: 'fade' }} />
         <Stack.Screen name="Compare" component={CompareScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Route" component={RouteScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Planner" component={PlannerScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'fullScreenModal' }} />
       </Stack.Navigator>

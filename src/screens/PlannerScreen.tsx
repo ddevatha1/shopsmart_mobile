@@ -111,7 +111,7 @@ export function PlannerScreen() {
         .map(line => ({ product: line.product!, quantity: 1 })),
     );
     await setCart(cartItems);
-    navigation.navigate('Tabs', { screen: 'Route' });
+    navigation.navigate('Route');
   }, [setCart, navigation]);
 
   const allAnswered = useMemo(() => prompts.every(p => p.taxonomyEntryId in answers), [prompts, answers]);

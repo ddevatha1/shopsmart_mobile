@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, type CompositeNavigationProp } from '@react-navigation/native';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, {
   FadeIn,
@@ -30,20 +29,15 @@ import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { colors, storeAccents } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
 import { spacing, radius } from '../theme/metrics';
-import type { RootStackParamList, TabParamList } from '../navigation/types';
+import type { RootStackParamList } from '../navigation/types';
 
 /** Mirrors shopsmart_web/src/components/CartDrawer.tsx. The web slide-over
  * drawer becomes a persistent bottom-nav tab on mobile (per instructions:
  * "Desktop sidebar → Bottom navigation") since the cart is a primary
  * destination a shopper returns to repeatedly, not a transient overlay. */
 
-type CartNavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<TabParamList>,
-  NativeStackNavigationProp<RootStackParamList>
->;
-
 export function CartScreen() {
-  const navigation = useNavigation<CartNavigationProp>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const items = useCartStore((s) => s.items);
   const updateQty = useCartStore((s) => s.updateQty);
   const remove = useCartStore((s) => s.remove);
@@ -146,13 +140,9 @@ export function CartScreen() {
       </View>
 
       {items.length === 0 ? (
-        <EmptyCart onPastePlan={() => navigation.navigate('Planner')} />
+        <EmptyCart />
       ) : (
         <>
-          <FindBestPricesCard
-            itemCount={cartItemCount(items)}
-            onPress={() => setOptimizeSheetVisible(true)}
-          />
           <View style={styles.hintSlot}>
             <ContextualHint hintKey="cart" message="Add items to your list to find the smartest shopping plan." />
           </View>
@@ -198,6 +188,7 @@ export function CartScreen() {
             zipcode={zipcode}
             byStore={byStore}
             onStartRoute={() => navigation.navigate('Route')}
+            onAutoOptimize={canOptimize ? () => setOptimizeSheetVisible(true) : undefined}
           />
         </>
       )}
@@ -214,27 +205,7 @@ export function CartScreen() {
   );
 }
 
-/**
- * The primary "plan my grocery trip" action — surfaced right at the top of
- * a non-empty list, ahead of the checklist itself, so optimizing across
- * stores reads as the main thing to do here rather than something buried in
- * the footer. Opens the same AutoOptimizeSheet that already produces a real
- * before/after store-grouped plan (savings + route time) via the planner's
- * own optimizer — no new logic, just a more prominent entry point.
- */
-function FindBestPricesCard({ itemCount, onPress }: { itemCount: number; onPress: () => void }) {
-  return (
-    <View style={styles.findPricesCard}>
-      <Text style={styles.findPricesCount}>{itemCount} item{itemCount !== 1 ? 's' : ''} added</Text>
-      <AnimatedPressable style={styles.findPricesButton} onPress={onPress} scaleTo={0.97}>
-        <Ionicons name="sparkles" size={16} color={colors.white} />
-        <Text style={styles.findPricesButtonText}>Find Best Prices</Text>
-      </AnimatedPressable>
-    </View>
-  );
-}
-
-function EmptyCart({ onPastePlan }: { onPastePlan: () => void }) {
+function EmptyCart() {
   const entrance = useSharedValue(0);
   useEffect(() => {
     entrance.value = withTiming(1, { duration: duration.slow, easing: easing.emphasized });
@@ -249,11 +220,8 @@ function EmptyCart({ onPastePlan }: { onPastePlan: () => void }) {
       <View style={styles.emptyCircle}>
         <Ionicons name="cart-outline" size={36} color={`${colors.green}66`} />
       </View>
-      <Text style={styles.emptyTitle}>Your list is empty</Text>
+      <Text style={styles.emptyTitle}>Your cart is empty</Text>
       <Text style={styles.emptyText}>Search for groceries and tap &quot;Add to Cart&quot; on any product.</Text>
-      <AnimatedPressable onPress={onPastePlan} scaleTo={0.97} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <Text style={styles.pastePlanLink}>Have a full list already? Paste it all at once →</Text>
-      </AnimatedPressable>
     </Animated.View>
   );
 }
@@ -316,12 +284,13 @@ function CartRow({ item, onUpdateQty, onRemove }: {
   );
 }
 
-function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute }: {
+function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute, onAutoOptimize }: {
   total: number;
   uniqueStoreCount: number;
   zipcode: string;
   byStore: { store: StoreName; items: CartItem[]; subtotal: number }[];
   onStartRoute: () => void;
+  onAutoOptimize?: () => void;
 }) {
   return (
     <View style={styles.footer}>
@@ -346,6 +315,12 @@ function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute }:
         <Text style={styles.totalLabel}>Total</Text>
         <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
       </View>
+      {onAutoOptimize && (
+        <AnimatedPressable style={styles.autoOptimizeButton} onPress={onAutoOptimize}>
+          <Ionicons name="sparkles" size={16} color={colors.green} />
+          <Text style={styles.autoOptimizeText}>Auto-Optimize</Text>
+        </AnimatedPressable>
+      )}
       <AnimatedPressable style={styles.startRouteButton} onPress={onStartRoute}>
         <Ionicons name="navigate" size={17} color={colors.white} />
         <Text style={styles.startRouteText}>Start Route</Text>
@@ -361,24 +336,10 @@ const styles = StyleSheet.create({
   headerBadge: { backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   headerBadgeText: { color: colors.white, fontSize: 11, fontWeight: '700' },
   hintSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
-  findPricesCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: colors.mint, borderRadius: radius.lg,
-    marginHorizontal: spacing.lg, marginBottom: spacing.lg,
-    paddingVertical: spacing.md, paddingHorizontal: spacing.lg, gap: spacing.md,
-  },
-  findPricesCount: { color: colors.green, fontWeight: '700', fontSize: 13.5, flex: 1 },
-  findPricesButton: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.green, borderRadius: radius.md,
-    paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.md + 2, minHeight: 40,
-  },
-  findPricesButtonText: { color: colors.white, fontWeight: '700', fontSize: 13 },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.sm },
   emptyCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   emptyTitle: { fontWeight: '600', fontSize: 15, color: colors.charcoal },
   emptyText: { color: `${colors.charcoal}73`, fontSize: 13, textAlign: 'center' },
-  pastePlanLink: { color: colors.green, fontWeight: '600', fontSize: 12.5, marginTop: spacing.md, textAlign: 'center' },
   advisorSlot: { gap: spacing.sm, marginBottom: spacing.md },
   suggestionText: { color: `${colors.charcoal}80`, fontSize: 12, fontStyle: 'italic', paddingHorizontal: spacing.xs },
   categoryHeader: {
@@ -406,6 +367,11 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontWeight: '600', fontSize: 15, color: colors.charcoal },
   totalValue: { color: colors.green, fontWeight: '800', fontSize: 20 },
+  autoOptimizeButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    backgroundColor: colors.mint, borderRadius: radius.md, paddingVertical: spacing.md, minHeight: 44,
+  },
+  autoOptimizeText: { color: colors.green, fontWeight: '700', fontSize: 13.5 },
   startRouteButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
     backgroundColor: colors.green, borderRadius: radius.md, paddingVertical: spacing.md + 2, minHeight: 48,

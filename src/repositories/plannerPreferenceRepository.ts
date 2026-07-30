@@ -4,9 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * 2% milk" — scoped per signed-in account, same pattern as cartRepository.
  * Maps taxonomyEntryId (e.g. "milk") to either a chosen subtypeId (e.g.
  * "two-percent") or the literal string 'no-preference', which is itself a
- * remembered, sticky choice. Mirrors shopsmart_web's
+ * remembered, sticky choice. Mirrors CartIQ_web's
  * plannerPreferenceRepository.ts (AsyncStorage instead of localStorage). */
-const keyFor = (ownerEmail: string) => `shopsmart_planner_prefs_${ownerEmail}`;
+const keyFor = (ownerEmail: string) => `CartIQ_planner_prefs_${ownerEmail}`;
 
 export type PlannerPreferences = Record<string, string>;
 

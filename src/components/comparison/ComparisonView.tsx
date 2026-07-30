@@ -20,9 +20,11 @@ import {
   type ProductGroup,
 } from '../../services/comparisonService';
 import { buildFilterSchema } from '../../services/filterSchemaService';
-import { getComparisonInsight, type AdvisorInsight } from '../../services/advisorService';
+import { dismissalKey, getComparisonInsight, type AdvisorInsight } from '../../services/advisorService';
+import { dismissInsight } from '../../services/dismissalStore';
 import { getCurrentCoordinates, type Coordinates } from '../../services/locationService';
 import { useSearchStore } from '../../store/searchStore';
+import { useUserStore } from '../../store/userStore';
 import type { ApiProduct } from '../../models/types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -60,6 +62,7 @@ export function ComparisonView({
   group, allDirectProducts, onPressProduct, onAddToCart, onOpenCategory, onSearchMore,
 }: Props) {
   const activeQuery = useSearchStore((s) => s.activeQuery);
+  const ownerEmail = useUserStore((s) => s.user?.email);
 
   const [coords, setCoords] = useState<Coordinates | null>(null);
   useEffect(() => {
@@ -106,13 +109,22 @@ export function ComparisonView({
   const [insight, setInsight] = useState<AdvisorInsight | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getComparisonInsight(filteredGroup, allListings).then((result) => {
+    getComparisonInsight(filteredGroup, allListings, ownerEmail).then((result) => {
       if (!cancelled) setInsight(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [filteredGroup, allListings]);
+  }, [filteredGroup, allListings, ownerEmail]);
+
+  // Clears the card immediately and records the dismissal so it doesn't
+  // reappear on the next effect run — same pattern as SearchScreen's/
+  // CartScreen's handleDismissAdvisor.
+  const handleDismissInsight = () => {
+    if (!insight) return;
+    dismissInsight(ownerEmail ?? '', dismissalKey(insight));
+    setInsight(null);
+  };
 
   const handlePressListing = (listing: EnrichedListing) => onPressProduct(listing.product);
 
@@ -140,7 +152,7 @@ export function ComparisonView({
 
       {insight && (
         <View style={styles.advisorSlot}>
-          <AdvisorCard insight={insight} onSeeProduct={onPressProduct} onAddToCart={onAddToCart} />
+          <AdvisorCard insight={insight} onSeeProduct={onPressProduct} onAddToCart={onAddToCart} onDismiss={handleDismissInsight} />
         </View>
       )}
 

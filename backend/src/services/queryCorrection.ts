@@ -7,7 +7,7 @@
  * route.ts's neighboring perfLog calls). Deliberately a standalone module
  * with its own copy of the similarity primitives, same "no shared runtime
  * with the backend" reasoning already documented in comparisonService.ts —
- * there is no runtime shared between this app and shopsmart_mobile's
+ * there is no runtime shared between this app and CartIQ_mobile's
  * backend, so this file is mirrored there rather than imported.
  */
 

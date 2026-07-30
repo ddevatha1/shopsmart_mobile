@@ -10,8 +10,10 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { authRepository, AuthError } from '../repositories/authRepository';
+import { applyOnboardingPreferredStore } from '../services/shopperPreferenceService';
 import { useUserStore } from '../store/userStore';
 import { useOnboardingStore } from '../store/onboardingStore';
 import { colors } from '../theme/colors';
@@ -21,11 +23,24 @@ import type { RootStackParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 type Mode = 'signIn' | 'signUp';
 
-/** Mirrors shopsmart_web/src/components/AuthModal.tsx exactly — same two
+/** Mirrors CartIQ_web/src/components/AuthModal.tsx exactly — same two
  * modes, same fields, same validation, same fake local-account logic (see
  * authRepository). The web dialog overlay becomes a full-screen modal
  * route here for reliable keyboard handling on mobile. */
 export function AuthScreen({ navigation, route }: Props) {
+  // Global Layout Fix (Issue 5) — this screen had NO safe-area handling
+  // at all before: its header used a hardcoded `paddingTop: 60` guessing
+  // at the status bar height, which is wrong on any device whose real
+  // inset differs (shorter on older/no-notch phones, taller on some
+  // Android punch-hole cameras) and left the close (X) button either
+  // crowded against the status bar or sitting in an oversized gap. The
+  // header's green background is deliberately still full-bleed (a
+  // colored hero look, not the plain-white `ScreenContainer` other
+  // screens use) — so instead of wrapping in `ScreenContainer`, the real
+  // `insets.top` is added on top of the header's own visual padding,
+  // letting the color fill the status bar while the actual close button
+  // sits safely below it.
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>(route.params?.initialMode ?? 'signIn');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -51,6 +66,11 @@ export function AuthScreen({ navigation, route }: Props) {
         ? await authRepository.signUp({ name, email, zipcode })
         : await authRepository.signIn({ email });
       await signIn(user);
+      // Phase 6 Part 2 — a real, explicit selection from OnboardingScreen's
+      // optional store picker, saved now that a real account (and a real
+      // ownerEmail) exists. See shopperPreferenceService's own gate for
+      // exactly when this does/doesn't save.
+      await applyOnboardingPreferredStore(user.email, isSignUp, route.params?.preferredStoreToSave);
       if (onSuccess === 'toDashboard') {
         // Reached here either from first-launch onboarding or from its
         // Skip path — both count as "onboarding done" the moment a
@@ -73,8 +93,8 @@ export function AuthScreen({ navigation, route }: Props) {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.white }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: insets.bottom + spacing.lg }}>
+        <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
           <View style={styles.headerTop}>
             <Text style={styles.logo}>
               Shop<Text style={{ color: '#A8D5AA' }}>Smart</Text>
@@ -167,7 +187,11 @@ export function AuthScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: { backgroundColor: colors.green, paddingHorizontal: 24, paddingTop: 60, paddingBottom: 24 },
+  // paddingTop is set dynamically at the call site (insets.top + spacing.lg)
+  // — see this component's own comment on why a colored full-bleed header
+  // needs the real safe-area inset added to its own padding instead of
+  // being wrapped in a plain SafeAreaView.
+  header: { backgroundColor: colors.green, paddingHorizontal: 24, paddingBottom: 24 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   logo: { color: colors.white, fontWeight: '800', fontSize: 20 },
   closeButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },

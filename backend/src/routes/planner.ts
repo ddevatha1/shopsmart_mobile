@@ -2,7 +2,7 @@
  * POST /api/planner — Smart Shopping Planner. Body items are already
  * ambiguity-resolved on the client (see src/services/plannerAmbiguityService.ts)
  * before this is ever called — this route only runs the optimizer. Mirrors
- * shopsmart_web's app/api/planner/route.ts.
+ * CartIQ_web's app/api/planner/route.ts.
  */
 import type { Request, Response } from 'express';
 import type { PlannerListItem, ShoppingPlanRequest } from '../types/index.ts';
@@ -29,7 +29,7 @@ export async function handlePlanner(req: Request, res: Response): Promise<void> 
   }
 
   try {
-    const plan = await buildShoppingPlan(body.items, zipcode);
+    const plan = await buildShoppingPlan(body.items, zipcode, undefined, body.constraints?.budgetTarget);
     res.json(plan);
   } catch (err) {
     console.warn('[Planner] plan generation failed:', err);

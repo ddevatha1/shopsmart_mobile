@@ -2,12 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { User } from '../models/types';
 
 /**
- * Mirrors the `LS_USER_KEY` ('shopsmart_user') persistence effect in
+ * Mirrors the `LS_USER_KEY` ('CartIQ_user') persistence effect in
  * page.tsx — the *current session's* live user object (including
  * in-session search history updates), kept separate from the accounts
  * database in authRepository, exactly as on the web.
  */
-const USER_KEY = 'shopsmart_user';
+const USER_KEY = 'CartIQ_user';
 
 export const userRepository = {
   async loadCurrentUser(): Promise<User | null> {

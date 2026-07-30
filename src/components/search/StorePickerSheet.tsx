@@ -1,16 +1,25 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { STORE_NAMES, UNAVAILABLE_STORES, type StoreName } from '../../models/types';
-import { colors, storeAccents } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { radius, spacing } from '../../theme/metrics';
 import { AnimatedPressable } from '../AnimatedPressable';
+import { StoreLogo } from '../StoreLogo';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   onSelect: (store: StoreName) => void;
+  /** Optional (Phase 6 Part 2) — lets a second real caller
+   * (OnboardingScreen's optional preferred-store picker) reuse this exact
+   * sheet with its own real copy, instead of a second store-list
+   * component. Defaults to the original "Search Within One Store" copy —
+   * the existing call site (SearchScreen) is unaffected. */
+  title?: string;
+  subtitle?: string;
 }
 
 /**
@@ -20,26 +29,34 @@ interface Props {
  * bottom-sheet shell as the other quick-pick sheets in this app
  * (ComparisonFilterModal, the old NotSatisfiedSheet) for a consistent feel.
  */
-export function StorePickerSheet({ visible, onClose, onSelect }: Props) {
+export function StorePickerSheet({
+  visible, onClose, onSelect,
+  title = 'Search Within One Store',
+  subtitle = "Browse one retailer's inventory directly — no cross-store comparison.",
+}: Props) {
+  // Global Layout Fix (Issue 5) — a Modal's content isn't automatically
+  // inset by anything; a bottom sheet's own fixed `paddingBottom` needs
+  // the real home-indicator inset added on top of it, or the last row
+  // sits right at (sometimes under) the gesture-nav area.
+  const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: spacing.xl + insets.bottom }]}>
           <View style={styles.grabberRow}>
             <View style={styles.grabber} />
           </View>
           <View style={styles.header}>
-            <Text style={typography.h2}>Search Within One Store</Text>
+            <Text style={typography.h2}>{title}</Text>
             <AnimatedPressable onPress={onClose} style={styles.closeButton} scaleTo={0.9} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={20} color={colors.charcoal} />
             </AnimatedPressable>
           </View>
-          <Text style={styles.subtitle}>Browse one retailer&apos;s inventory directly — no cross-store comparison.</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           <View style={styles.list}>
             {STORE_NAMES.map((store) => {
-              const accent = storeAccents[store];
               const unavailable = UNAVAILABLE_STORES.has(store);
               return (
                 <AnimatedPressable
@@ -49,9 +66,7 @@ export function StorePickerSheet({ visible, onClose, onSelect }: Props) {
                   scaleTo={unavailable ? 1 : 0.98}
                   disabled={unavailable}
                 >
-                  <View style={[styles.logo, { backgroundColor: accent.background }]}>
-                    <Text style={[styles.logoText, { color: accent.text }]}>{store.slice(0, 2).toUpperCase()}</Text>
-                  </View>
+                  <StoreLogo store={store} height={36} width={64} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowLabel}>{store}</Text>
                     {unavailable && <Text style={styles.unavailableLabel}>Temporarily unavailable</Text>}
@@ -70,11 +85,12 @@ export function StorePickerSheet({ visible, onClose, onSelect }: Props) {
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { backgroundColor: 'rgba(0,0,0,0.35)' },
+  // paddingBottom is set dynamically at the call site (spacing.xl +
+  // insets.bottom) — see this component's own comment above.
   sheet: {
     backgroundColor: colors.white,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    paddingBottom: spacing.xl,
   },
   grabberRow: { alignItems: 'center', paddingTop: spacing.sm },
   grabber: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.borderGray },
@@ -97,8 +113,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: colors.panelBg,
   },
-  logo: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  logoText: { fontSize: 12, fontWeight: '800' },
   rowLabel: { ...typography.bodyMedium, fontSize: 14.5 },
   rowDisabled: { opacity: 0.75 },
   unavailableLabel: { ...typography.caption, color: `${colors.charcoal}99`, marginTop: 2 },

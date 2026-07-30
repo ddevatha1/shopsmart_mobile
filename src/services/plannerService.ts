@@ -7,11 +7,16 @@ import { apiClient, ApiError } from './apiClient';
 export async function generateShoppingPlan(
   items: PlannerListItem[],
   zipcode: string,
+  budgetTarget?: number,
 ): Promise<ShoppingPlanResponse> {
   const res = await fetch(`${apiClient.baseUrl}/api/planner`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items, zipcode }),
+    body: JSON.stringify({
+      items,
+      zipcode,
+      ...(budgetTarget != null && { constraints: { budgetTarget } }),
+    }),
   });
 
   const body = await res.json().catch(() => ({}));

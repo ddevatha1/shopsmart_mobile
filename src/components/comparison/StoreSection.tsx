@@ -3,9 +3,10 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ApiProduct } from '../../models/types';
 import type { StoreSection as StoreSectionData, EnrichedListing } from '../../services/comparisonService';
 import { ProductCard } from '../ProductCard';
-import { colors, storeAccents } from '../../theme/colors';
+import { StoreLogo } from '../StoreLogo';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing, radius } from '../../theme/metrics';
+import { spacing } from '../../theme/metrics';
 import { formatMiles } from '../../utils/geo';
 
 interface Props {
@@ -25,19 +26,10 @@ const CARD_WIDTH = 176;
  * hero," but browsing a store's real variety is no longer collapsed away.
  */
 export function StoreSection({ section, onPressListing, onAddToCart }: Props) {
-  const accent = storeAccents[section.store];
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        {/* No served store-logo asset exists in this app's data — the
-         * colored accent initial mark is the same store-identity language
-         * used everywhere else (ProductCard's store badge, map pins). */}
-        <View style={[styles.logo, { backgroundColor: accent.background }]}>
-          <Text style={[styles.logoText, { color: accent.text }]}>
-            {section.store.slice(0, 2).toUpperCase()}
-          </Text>
-        </View>
+        <StoreLogo store={section.store} height={36} width={64} />
         <View style={{ flex: 1 }}>
           <Text style={styles.storeName}>{section.store}</Text>
           <Text style={styles.meta}>
@@ -88,8 +80,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: { marginBottom: spacing.xl },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg },
-  logo: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
-  logoText: { fontSize: 12, fontWeight: '800' },
   storeName: { ...typography.h3 },
   meta: { color: `${colors.charcoal}80`, fontSize: 12, marginTop: 1 },
   statsRow: {

@@ -33,10 +33,10 @@ export function StoreModeBar({ selectedStore, onOpenPicker, onClear }: Props) {
     <View style={styles.activeRow}>
       <View style={[styles.activePill, { backgroundColor: accent.background }]}>
         <View style={[styles.dot, { backgroundColor: accent.dot }]} />
-        <Text style={[styles.activeText, { color: accent.text }]}>Shopping at {selectedStore}</Text>
+        <Text style={[styles.activeText, { color: accent.text }]} numberOfLines={1}>Shopping at {selectedStore}</Text>
       </View>
       <AnimatedPressable onPress={onClear} scaleTo={0.96} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-        <Text style={styles.compareLink}>Compare Across Stores</Text>
+        <Text style={styles.compareLink} numberOfLines={1}>Compare Across Stores</Text>
       </AnimatedPressable>
     </View>
   );

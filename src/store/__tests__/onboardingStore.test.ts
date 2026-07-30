@@ -65,7 +65,7 @@ describe('onboardingStore', () => {
   });
 
   test('a malformed/corrupt persisted value falls back to defaults instead of throwing', async () => {
-    await AsyncStorage.setItem('shopsmart_onboarding_v1', 'not valid json{{{');
+    await AsyncStorage.setItem('CartIQ_onboarding_v1', 'not valid json{{{');
     await expect(useOnboardingStore.getState().hydrate()).resolves.toBeUndefined();
     const state = useOnboardingStore.getState();
     expect(state.completed).toBe(false);

@@ -13,7 +13,7 @@ import type { TripChecklist } from '../services/navigationController';
  * per-account like the cart is — a trip in progress belongs to whoever's
  * device it's on, and there's only ever one active trip at a time.
  */
-const ACTIVE_TRIP_KEY = 'shopsmart_route_active_trip';
+const ACTIVE_TRIP_KEY = 'CartIQ_route_active_trip';
 
 interface StoredChecklist {
   tripSignature: string;

@@ -1,15 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenContainer } from '../components/ScreenContainer';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeOut,
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -33,9 +32,10 @@ import { recordPurchases } from '../services/purchaseHistoryService';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { RouteMap } from '../components/RouteMap';
+import { GuidedPickupFlow } from '../components/route/GuidedPickupFlow';
 import { colors, storeAccents } from '../theme/colors';
 import { spacing, radius, elevation } from '../theme/metrics';
-import { duration, easing, spring } from '../theme/motion';
+import { duration, easing } from '../theme/motion';
 import type { RootStackParamList } from '../navigation/types';
 import type { CartItem, StoreGroup, StoreName, TripPlan } from '../models/types';
 
@@ -86,19 +86,8 @@ export function RouteScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <AnimatedPressable
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          scaleTo={0.9}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.charcoal} />
-        </AnimatedPressable>
-        <Text style={styles.headerTitle}>Your Route</Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <ScreenContainer>
+      <ScreenHeader title="Your Route" onBack={() => navigation.goBack()} />
 
       {items.length === 0 ? (
         <View style={styles.centerState}>
@@ -126,17 +115,19 @@ export function RouteScreen({ navigation }: Props) {
           zipcode={zipcode}
           itemsWithoutLocation={itemsWithoutLocation}
           totalProducts={items.reduce((sum, i) => sum + i.quantity, 0)}
+          onCheckQuality={(productName) => navigation.navigate('ProductQuality', { productName })}
         />
       )}
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 
-function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts }: {
+function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts, onCheckQuality }: {
   groups: StoreGroup[];
   zipcode: string;
   itemsWithoutLocation: CartItem[];
   totalProducts: number;
+  onCheckQuality: (productName: string) => void;
 }) {
   const [trip, setTrip] = useState<TripPlan | null>(null);
   // Captured once when the trip finishes loading (not read live via
@@ -310,6 +301,7 @@ function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts }: {
           activeStopProgress={activeStop ? stopProgressList[tripProgress.activeStopIndex] : undefined}
           checklist={activeKey ? (checklist[activeKey] ?? {}) : {}}
           onToggleItem={(productId) => activeKey && toggleItem(activeKey, productId)}
+          onCheckQuality={onCheckQuality}
           onExit={exitNavigation}
           tripStartTime={tripStartTime}
         />
@@ -381,6 +373,7 @@ function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts }: {
             tripStartTime={tripStartTime}
             checklist={checklist[stopKeys[i]] ?? {}}
             onToggleItem={(productId) => toggleItem(stopKeys[i], productId)}
+            onCheckQuality={onCheckQuality}
           />
         </View>
       ))}
@@ -433,7 +426,7 @@ function NavigationBanner({ activeStop, tripStartTime }: {
  */
 function NavigationPanel({
   trip, tripProgress, activeStop, activeStopKey, activeStopItems, activeStopProgress, checklist, onToggleItem, onExit,
-  tripStartTime,
+  tripStartTime, onCheckQuality,
 }: {
   trip: TripPlan;
   tripProgress: TripProgress;
@@ -445,6 +438,7 @@ function NavigationPanel({
   onToggleItem: (productId: string) => void;
   onExit: () => void;
   tripStartTime: number;
+  onCheckQuality: (productName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -494,16 +488,14 @@ function NavigationPanel({
       </View>
 
       {expanded && activeStop && (
-        <ScrollView style={styles.navChecklist}>
-          {activeStopItems.map((item) => (
-            <ChecklistRow
-              key={item.product.id}
-              item={item}
-              checked={!!checklist[item.product.id]}
-              onToggle={() => onToggleItem(item.product.id)}
-            />
-          ))}
-        </ScrollView>
+        <View style={styles.navChecklist}>
+          <GuidedPickupFlow
+            items={activeStopItems}
+            checklist={checklist}
+            onToggleItem={onToggleItem}
+            onCheckQuality={onCheckQuality}
+          />
+        </View>
       )}
 
       <AnimatedPressable onPress={onExit} scaleTo={0.98} style={styles.exitNavButton}>
@@ -574,7 +566,9 @@ function SummaryStat({ icon, value, label }: { icon: keyof typeof Ionicons.glyph
   );
 }
 
-function StopCard({ index, stop, store, items, progress, isActive, isFirst, isLast, tripStartTime, checklist, onToggleItem }: {
+function StopCard({
+  index, stop, store, items, progress, isActive, isFirst, isLast, tripStartTime, checklist, onToggleItem, onCheckQuality,
+}: {
   index: number;
   stop: TripPlan['stops'][number];
   store: StoreName;
@@ -586,6 +580,7 @@ function StopCard({ index, stop, store, items, progress, isActive, isFirst, isLa
   tripStartTime: number;
   checklist: Record<string, boolean>;
   onToggleItem: (productId: string) => void;
+  onCheckQuality: (productName: string) => void;
 }) {
   const accent = storeAccents[store];
   const arrival = new Date(tripStartTime + stop.cumulativeEtaMinutes * 60000);
@@ -669,53 +664,16 @@ function StopCard({ index, stop, store, items, progress, isActive, isFirst, isLa
 
         {!collapsed && (
           <View style={styles.pickupList}>
-            {items.map((item) => (
-              <ChecklistRow
-                key={item.product.id}
-                item={item}
-                checked={!!checklist[item.product.id]}
-                onToggle={() => onToggleItem(item.product.id)}
-              />
-            ))}
+            <GuidedPickupFlow
+              items={items}
+              checklist={checklist}
+              onToggleItem={onToggleItem}
+              onCheckQuality={onCheckQuality}
+            />
           </View>
         )}
       </View>
     </View>
-  );
-}
-
-function ChecklistRow({ item, checked, onToggle }: { item: CartItem; checked: boolean; onToggle: () => void }) {
-  const progress = useSharedValue(checked ? 1 : 0);
-  useEffect(() => {
-    progress.value = withSpring(checked ? 1 : 0, spring);
-  }, [checked, progress]);
-
-  const boxStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(progress.value, [0, 1], ['#FFFFFF', colors.green]),
-    borderColor: interpolateColor(progress.value, [0, 1], [colors.borderGray, colors.green]),
-    transform: [{ scale: 0.92 + progress.value * 0.08 }],
-  }));
-  const checkStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ scale: progress.value }],
-  }));
-
-  return (
-    <AnimatedPressable
-      onPress={onToggle}
-      style={styles.pickupRow}
-      scaleTo={0.98}
-      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-    >
-      <Animated.View style={[styles.checklistBox, boxStyle]}>
-        <Animated.View style={checkStyle}>
-          <Ionicons name="checkmark" size={14} color={colors.white} />
-        </Animated.View>
-      </Animated.View>
-      <Text style={[styles.pickupText, checked && styles.pickupTextChecked]}>
-        {item.product.name}{item.quantity > 1 ? ` × ${item.quantity}` : ''}
-      </Text>
-    </AnimatedPressable>
   );
 }
 
@@ -728,16 +686,6 @@ function formatDuration(minutes: number): string {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.white },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-  },
-  backButton: {
-    width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.panelBg,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  headerTitle: { fontWeight: '700', fontSize: 16, color: colors.charcoal },
   centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.md },
   emptyText: { color: `${colors.charcoal}80`, fontSize: 13.5, textAlign: 'center' },
   loadingText: { color: `${colors.charcoal}80`, fontSize: 13.5, textAlign: 'center' },
@@ -794,7 +742,10 @@ const styles = StyleSheet.create({
   navStat: { alignItems: 'center', gap: 1 },
   navStatValue: { fontWeight: '700', fontSize: 13.5, color: colors.charcoal, marginTop: 1 },
   navStatLabel: { color: `${colors.charcoal}80`, fontSize: 9.5 },
-  navChecklist: { maxHeight: 220, marginTop: spacing.md },
+  // No longer a capped-height scrollable list — GuidedPickupFlow shows
+  // exactly one item's card at a time, so its natural height is already
+  // bounded; this just adds breathing room from the stats row above it.
+  navChecklist: { marginTop: spacing.md },
   exitNavButton: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.md,
     alignSelf: 'center', paddingVertical: spacing.xs,
@@ -852,12 +803,5 @@ const styles = StyleSheet.create({
   stopProgressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.borderGray, overflow: 'hidden' },
   stopProgressFill: { height: '100%', borderRadius: 3 },
   stopProgressText: { color: `${colors.charcoal}80`, fontSize: 11, fontWeight: '600' },
-  pickupList: { marginTop: spacing.md, gap: spacing.sm },
-  pickupRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
-  checklistBox: {
-    width: 22, height: 22, borderRadius: radius.sm - 4, borderWidth: 1.5,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  pickupText: { color: colors.charcoal, fontSize: 12.5, flex: 1 },
-  pickupTextChecked: { color: `${colors.charcoal}66`, textDecorationLine: 'line-through' },
+  pickupList: { marginTop: spacing.md },
 });

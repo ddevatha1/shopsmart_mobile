@@ -1,8 +1,8 @@
-# ShopSmart Mobile (React Native / Expo)
+# CartIQ Mobile (React Native / Expo)
 
-A React Native counterpart to `shopsmart_web` — same business logic, same
+A React Native counterpart to `CartIQ_web` — same business logic, same
 branding, native mobile UX, but with its own independent backend (`backend/`)
-rather than depending on `shopsmart_web` being up. (This replaces an earlier
+rather than depending on `CartIQ_web` being up. (This replaces an earlier
 Flutter build of the same app in this same directory.)
 
 ## Running it
@@ -11,7 +11,7 @@ Flutter build of the same app in this same directory.)
 
 This app has no search logic of its own beyond the UI — every search hits
 `backend/`'s `/api/search` route (an Express server that lives in this repo,
-ported from `shopsmart_web`'s route of the same name), so nothing will work
+ported from `CartIQ_web`'s route of the same name), so nothing will work
 until that's running.
 
 ```bash
@@ -34,7 +34,7 @@ its own terminal.
 ### 2. Start the mobile app
 
 ```bash
-cd ../  # back to shopsmart_mobile root, if you're still in backend/
+cd ../  # back to CartIQ_mobile root, if you're still in backend/
 npm install
 
 # iOS Simulator / Expo web: localhost works directly.
@@ -57,7 +57,7 @@ npm run typecheck   # tsc --noEmit, 0 errors
 npm run lint         # eslint, 0 issues
 ```
 
-`shopsmart_web` is not involved in any of the above — this app's `backend/`
+`CartIQ_web` is not involved in any of the above — this app's `backend/`
 is a standalone Express + TypeScript server with its own `package.json`,
 runnable independently of the Next.js web app.
 
@@ -92,7 +92,7 @@ build).
 
 **All search/ranking/filtering business logic lives server-side**, in this
 app's own `backend/`'s `/api/search` route — ported line-for-line from
-`shopsmart_web`'s route of the same name, but running as an independent
+`CartIQ_web`'s route of the same name, but running as an independent
 Express server rather than depending on the Next.js dev server being up.
 This app doesn't re-implement relevance scoring, food filtering, or store
 fan-out on the client; it calls its own endpoint and renders the response.
@@ -105,7 +105,7 @@ math in `ProductDetailScreen` (copied from `ProductModal.tsx` verbatim).
 
 ## Web page → Mobile screen mapping
 
-| Web (`shopsmart_web/src/...`) | Mobile (`shopsmart_mobile/src/screens/...`) | Adaptation |
+| Web (`CartIQ_web/src/...`) | Mobile (`CartIQ_mobile/src/screens/...`) | Adaptation |
 |---|---|---|
 | `app/page.tsx` (hero + results) | `SearchScreen.tsx` | Single scrolling page, same as web |
 | `components/ProductCard.tsx` | `components/ProductCard.tsx` | Hover→tap; otherwise 1:1 |
@@ -151,7 +151,7 @@ loading/error states matching the web app's copy and logic.
 - `tsc --noEmit`: 0 errors (strict mode)
 - `eslint .` (eslint-config-expo): 0 issues
 - Real end-to-end run against a live dev server (`npx expo start --web`,
-  driven with Playwright — at the time against `shopsmart_web`'s `/api/search`,
+  driven with Playwright — at the time against `CartIQ_web`'s `/api/search`,
   before this app's own `backend/` existed; the route logic is unchanged
   since the port): search for "eggs" returned 27 real products across all 4
   stores with correct prices/images/ratings; verified the scanning animation,

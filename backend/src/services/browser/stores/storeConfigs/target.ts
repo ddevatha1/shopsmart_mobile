@@ -5,7 +5,7 @@
  * Service explicitly prohibit automated data collection
  * (docs/store_api_audit.md). A "technically compatible" result below
  * would still not make this a recommended integration — this evaluation
- * answers "does the site work with this framework," not "should ShopSmart
+ * answers "does the site work with this framework," not "should CartIQ
  * integrate it."
  */
 import type { StoreOnboardingConfig } from './types.ts';

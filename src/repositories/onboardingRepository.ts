@@ -8,9 +8,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * they signed out and back in. Mirrors userRepository.ts's
  * load/save-with-try/catch shape.
  */
-const ONBOARDING_KEY = 'shopsmart_onboarding_v1';
+const ONBOARDING_KEY = 'CartIQ_onboarding_v1';
 
-export type HintKey = 'search-suggestions' | 'search-compare' | 'compare' | 'cart' | 'route';
+export type HintKey = 'search-suggestions' | 'search-compare' | 'compare' | 'cart' | 'route' | 'assistant-intro';
 
 export interface OnboardingState {
   completed: boolean;

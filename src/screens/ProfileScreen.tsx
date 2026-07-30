@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenContainer } from '../components/ScreenContainer';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -25,7 +25,7 @@ function subtypeLabel(taxonomyEntryId: string, subtypeId: string): string {
   return entry?.subtypes.find(s => s.id === subtypeId)?.label ?? subtypeId;
 }
 
-/** Mirrors shopsmart_web/src/components/ProfileTray.tsx. The web slide-over
+/** Mirrors CartIQ_web/src/components/ProfileTray.tsx. The web slide-over
  * tray becomes a persistent bottom-nav tab (same rationale as CartScreen).
  * When signed out, shows a sign-in prompt — the web only ever renders
  * ProfileTray when `user` is truthy (`{user && <ProfileTray .../>}` in
@@ -35,12 +35,12 @@ export function ProfileScreen() {
   const user = useUserStore((s) => s.user);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.white }} edges={['top']}>
+    <ScreenContainer variant="tab">
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Profile</Text>
       </View>
       {user == null ? <SignedOutPrompt /> : <SignedInProfile user={user} />}
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 
@@ -51,7 +51,7 @@ function SignedOutPrompt() {
       <View style={styles.promptCircle}>
         <Ionicons name="person-outline" size={32} color={colors.green} />
       </View>
-      <Text style={styles.promptTitle}>Sign in to ShopSmart</Text>
+      <Text style={styles.promptTitle}>Sign in to CartIQ</Text>
       <Text style={styles.promptText}>Save your cart, track search history, and pick up where you left off.</Text>
       <TouchableOpacity
         style={styles.signInButton}
@@ -186,7 +186,7 @@ function SignedInProfile({ user }: { user: User }) {
         <TouchableOpacity style={styles.signOutButton} onPress={() => signOut()}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
-        <Text style={styles.footerTagline}>ShopSmart — Compare grocery prices across nearby stores</Text>
+        <Text style={styles.footerTagline}>CartIQ — Compare grocery prices across nearby stores</Text>
       </View>
     </ScrollView>
   );

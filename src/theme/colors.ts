@@ -1,7 +1,7 @@
 import type { StoreName } from '../models/types';
 
 /**
- * ShopSmart brand palette — copied directly from shopsmart_web's hardcoded
+ * CartIQ brand palette — copied directly from CartIQ_web's hardcoded
  * hex values (src/app/page.tsx, ProductCard.tsx, AuthModal.tsx, etc.) so the
  * mobile app is visually identical, not just "inspired by."
  */

@@ -6,7 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toStoreLocation, sortByDistanceFrom, type KrogerLocationRecord } from './krogerLocator.ts';
+import { toStoreLocation, sortByDistanceFrom, mapKrogerHours, type KrogerLocationRecord } from './krogerLocator.ts';
 
 const FRISCO_STORE: KrogerLocationRecord = {
   locationId: '01400943',
@@ -60,4 +60,45 @@ test('sortByDistanceFrom sorts candidates without coordinates last, not dropped'
   assert.equal(ranked.length, 2, 'candidate with no coordinates should be kept, not dropped');
   assert.equal(ranked[0].locationId, 'with-coords');
   assert.equal(ranked[1].locationId, 'no-coords');
+});
+
+// ─── Store hours (Store Reliability Foundation) ────────────────────────────
+
+test('mapKrogerHours maps well-formed open/close pairs for every present day', () => {
+  const hours = mapKrogerHours({
+    monday: { open: '06:00', close: '23:00' },
+    sunday: { open: '08:00', close: '21:00' },
+  });
+  assert.deepEqual(hours, {
+    monday: { open: '06:00', close: '23:00' },
+    sunday: { open: '08:00', close: '21:00' },
+  });
+});
+
+test('mapKrogerHours returns undefined for missing/absent hours, never a fabricated schedule', () => {
+  assert.equal(mapKrogerHours(undefined), undefined);
+  assert.equal(mapKrogerHours(null), undefined);
+  assert.equal(mapKrogerHours({}), undefined);
+});
+
+test('mapKrogerHours never throws on malformed data and simply omits the unusable day', () => {
+  assert.doesNotThrow(() => mapKrogerHours('not an object'));
+  assert.doesNotThrow(() => mapKrogerHours(42));
+  assert.doesNotThrow(() => mapKrogerHours({ monday: 'not an object' }));
+  assert.doesNotThrow(() => mapKrogerHours({ monday: { open: '9am', close: '11pm' } }));
+  assert.doesNotThrow(() => mapKrogerHours({ monday: { open: 900, close: 2300 } }));
+
+  const partiallyValid = mapKrogerHours({
+    monday: { open: '9am', close: '11pm' }, // malformed — omitted
+    tuesday: { open: '06:00', close: '23:00' }, // well-formed — kept
+  });
+  assert.deepEqual(partiallyValid, { tuesday: { open: '06:00', close: '23:00' } });
+});
+
+test('toStoreLocation carries mapped hours through, and omits them when the record has none', () => {
+  const withHours = toStoreLocation({ ...FRISCO_STORE, hours: { monday: { open: '06:00', close: '23:00' } } }, 'Kroger');
+  assert.deepEqual(withHours!.hours, { monday: { open: '06:00', close: '23:00' } });
+
+  const withoutHours = toStoreLocation(FRISCO_STORE, 'Kroger');
+  assert.equal(withoutHours!.hours, undefined);
 });

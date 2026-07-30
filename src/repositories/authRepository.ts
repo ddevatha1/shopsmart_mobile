@@ -11,7 +11,7 @@ import type { AccountRecord, User } from '../models/types';
  */
 export class AuthError extends Error {}
 
-const ACCOUNTS_KEY = 'shopsmart_accounts';
+const ACCOUNTS_KEY = 'CartIQ_accounts';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZIP_PATTERN = /^\d{5}$/;
 

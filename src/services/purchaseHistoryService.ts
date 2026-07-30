@@ -16,7 +16,7 @@ import { isOrganicProduct } from '../utils/filterProducts';
  * Powers pantry reminders (Home) and feeds personalizationService — both
  * read real dates and real product choices, never assumed ones.
  */
-const keyFor = (ownerEmail: string) => `shopsmart_purchases_${ownerEmail}`;
+const keyFor = (ownerEmail: string) => `CartIQ_purchases_${ownerEmail}`;
 const MAX_RECORDS = 500;
 
 export interface PurchaseRecord {
@@ -27,13 +27,35 @@ export interface PurchaseRecord {
   isOrganic: boolean;
   price: number;
   timestamp: number;
+  quantity: number;
+  /** Mirrors ApiProduct.canonicalId at the moment of purchase, when the
+   * backend was confident enough to set one (see
+   * backend/src/services/canonicalProductService.ts) — absent on records
+   * written before this field existed, and on any purchase where
+   * canonical matching didn't have enough signal. Lets
+   * inventoryEstimationService.ts recognize repeat purchases of the same
+   * underlying product across brand/variant name differences (e.g.
+   * "Organic Whole Milk" and "365 Whole Milk" both canonicalize to the
+   * same milk) instead of splitting them into two thin, independent
+   * purchase histories keyed only by `normalizedName`. */
+  canonicalId?: string;
+  /** Mirrors ApiProduct.category at the moment of purchase, when the
+   * backend set one — absent on older records and on any product with no
+   * category. Used only as a conservative fallback signal by
+   * inventoryEstimationService.ts (a well-known fast-turnover category
+   * like dairy/produce), never as a primary one. */
+  category?: string;
 }
 
 async function loadRecords(ownerEmail: string): Promise<PurchaseRecord[]> {
   const raw = await AsyncStorage.getItem(keyFor(ownerEmail));
   if (!raw) return [];
   try {
-    return JSON.parse(raw) as PurchaseRecord[];
+    const parsed = JSON.parse(raw) as PurchaseRecord[];
+    // Records written before `quantity` existed have none on disk — default
+    // to 1 here, once, so every reader downstream can trust the field is
+    // always a real number without its own defensive fallback.
+    return parsed.map((r) => ({ ...r, quantity: r.quantity ?? 1 }));
   } catch {
     return [];
   }
@@ -57,6 +79,9 @@ export async function recordPurchases(ownerEmail: string, items: CartItem[]): Pr
       isOrganic: isOrganicProduct(p),
       price: p.price,
       timestamp: now,
+      quantity: item.quantity,
+      canonicalId: p.canonicalId,
+      category: p.category,
     });
   }
   await saveRecords(ownerEmail, records);
@@ -124,4 +149,17 @@ export async function getAllRecords(ownerEmail: string): Promise<PurchaseRecord[
 export function isProductPurchased(product: Pick<ApiProduct, 'name'>, records: PurchaseRecord[]): boolean {
   const key = normalizeProductName(product.name);
   return records.some((r) => r.normalizedName === key);
+}
+
+/** The most recent real purchase record for this product (matched by
+ * normalized name, the same matching `isProductPurchased` uses), or
+ * `undefined` if this shopper has never bought it. Phase 5.5 Part 4's
+ * ONLY source for a "lower price than your previous purchase" claim (see
+ * recommendationExplanationService.ts's `explainProductSelection`) —
+ * never an assumed or estimated prior price. */
+export function getMostRecentPurchase(product: Pick<ApiProduct, 'name'>, records: PurchaseRecord[]): PurchaseRecord | undefined {
+  const key = normalizeProductName(product.name);
+  return records
+    .filter((r) => r.normalizedName === key)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
 }

@@ -11,7 +11,7 @@ import { apiClient } from './apiClient';
  * own backend, on top of the backend's own cross-user cache.
  */
 
-const CACHE_KEY_PREFIX = 'shopsmart_image_cache_';
+const CACHE_KEY_PREFIX = 'CartIQ_image_cache_';
 // Cached when a lookup legitimately found nothing, so we don't keep
 // re-querying a product that has no good match.
 const NO_MATCH_SENTINEL = '__no_match__';

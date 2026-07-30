@@ -4,11 +4,11 @@
  * image backfill. Extracted out of routes/search.ts so other server-side
  * code (the Smart Shopping Planner's optimizer, one call per grocery-list
  * item) can call `performSearch` directly instead of issuing an HTTP
- * request back to this same server. Mirrors shopsmart_web's
+ * request back to this same server. Mirrors CartIQ_web's
  * src/services/searchService.ts (same split, same reasoning) — ported here
- * for shopsmart_mobile's independent backend.
+ * for CartIQ_mobile's independent backend.
  */
-import type { ApiProduct, SearchResponse, StoreStatus } from '../types/index.ts';
+import type { ApiProduct, NutritionAttributes, SearchResponse, StoreStatus } from '../types/index.ts';
 import { searchSproutsWithTimeout } from './sproutsLiveScraper.ts';
 import { searchKrogerWithTimeout, searchHarrisTeeterWithTimeout } from './krogerLiveScraper.ts';
 import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
@@ -16,6 +16,8 @@ import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
 import { searchAlbertsonsWithTimeout } from './albertsonsLiveScraper.ts';
 import { correctQuery, logQueryCorrection } from './queryCorrection.ts';
 import { perfLog } from '../utils/perfLog.ts';
+import { withTimeout } from '../utils/withTimeout.ts';
+import { enrichProductsWithCanonicalId } from './canonicalProductService.ts';
 import type { PreciseCoords } from './locators/types.ts';
 
 type StoreName = ApiProduct['store'];
@@ -28,7 +30,11 @@ const UNAVAILABLE_STORES = new Set<StoreName>(['Albertsons']);
 
 // ─── Relevance scoring ───────────────────────────────────────────────────
 // Words that don't define what a product IS — strip these when ranking.
-const FILLER_WORDS = new Set([
+// Exported so canonicalProductService.ts can reuse the exact same
+// marketing-filler vocabulary for canonical-identity stripping instead of
+// duplicating it — the "does this word change what the product IS"
+// question is the same one relevance scoring already answers.
+export const FILLER_WORDS = new Set([
   'organic', 'natural', 'fresh', 'premium', 'artisan', 'classic', 'raw', 'pure',
   'whole', 'grade', 'certified', 'farm', 'local', 'locally', 'grown', 'harvested',
   'non-gmo', 'kosher', 'vegan', 'gluten-free', 'gluten', 'free', 'usda', 'extra',
@@ -49,7 +55,8 @@ const UNIT_OR_PACKAGING_WORDS = new Set([
   'half', 'quarter', 'double', 'triple',
 ]);
 
-function isUnitOrPackagingWord(word: string): boolean {
+// Exported for canonicalProductService.ts — same reasoning as FILLER_WORDS.
+export function isUnitOrPackagingWord(word: string): boolean {
   if (UNIT_OR_PACKAGING_WORDS.has(word) || UNIT_OR_PACKAGING_WORDS.has(singularize(word))) return true;
   if (/^\d+(\.\d+)?%?$/.test(word)) return true;
   const fused = word.match(/^\d+(?:\.\d+)?([a-z]+)$/);
@@ -270,7 +277,8 @@ const SIZE_OR_MEASURE_WORDS = new Set([
   'gal', 'gallon', 'qt', 'quart', 'pt', 'pint', 'ct', 'count',
 ]);
 
-function singularize(word: string): string {
+// Exported for canonicalProductService.ts — same reasoning as FILLER_WORDS.
+export function singularize(word: string): string {
   return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
 }
 
@@ -385,6 +393,70 @@ function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
       throw err;
     },
   );
+}
+
+export const MAX_NUTRITION_ENRICHMENT = 10;
+export const NUTRITION_ENRICHMENT_BUDGET_MS = 1200;
+
+/** The real production nutrition fetcher — a thin wrapper around
+ * routes/productImage.ts's cache + Open Food Facts lookup, imported
+ * dynamically (not statically) to avoid a circular module dependency:
+ * that file already imports `hasDifferentHeadNoun`/`tokenizeName` from
+ * this one. Kept as its own function (rather than inlined) so
+ * `enrichDirectMatchesWithNutrition`'s default parameter is the only
+ * place this app's search pipeline ever touches Open Food Facts
+ * specifics — everything else sees only the abstract
+ * `(name) => Promise<NutritionAttributes | undefined>` shape below. */
+async function fetchNutritionFromOpenFoodFacts(name: string): Promise<NutritionAttributes | undefined> {
+  const { getCachedOrFetchNutrition } = await import('../routes/productImage.ts');
+  return getCachedOrFetchNutrition(name);
+}
+
+/**
+ * Best-effort nutrition enrichment for the products a shopper (and the
+ * Smart Shopping Planner's optimizer, which calls performSearch directly
+ * per grocery-list item) actually sees or compares — capped to direct
+ * matches only (never every related/tangential result) and to a strict
+ * overall time budget, so a slow or unresponsive Open Food Facts can
+ * never meaningfully delay a search response.
+ *
+ * Missing nutrition (timeout, no Open Food Facts match, over the cap) is
+ * the expected, common outcome, never an error — every caller must treat
+ * `product.nutrition` as optional.
+ *
+ * `fetchNutrition` defaults to the real Open Food Facts-backed lookup and
+ * exists as a parameter purely for testability — tests inject a fake
+ * `(name) => Promise<NutritionAttributes | undefined>` instead of a real
+ * network call, without ever needing to know or fake an Open Food Facts
+ * response shape (that stays entirely inside routes/productImage.ts).
+ */
+export async function enrichDirectMatchesWithNutrition(
+  products: ApiProduct[],
+  fetchNutrition: (name: string) => Promise<NutritionAttributes | undefined> = fetchNutritionFromOpenFoodFacts,
+): Promise<ApiProduct[]> {
+  const targets = products.filter(p => p.matchType !== 'related').slice(0, MAX_NUTRITION_ENRICHMENT);
+  if (targets.length === 0) return products;
+
+  let resolved: (NutritionAttributes | undefined)[];
+  try {
+    const settled = await withTimeout(
+      Promise.allSettled(targets.map(p => fetchNutrition(p.name))),
+      NUTRITION_ENRICHMENT_BUDGET_MS,
+      'Nutrition enrichment',
+    );
+    resolved = settled.map(r => (r.status === 'fulfilled' ? r.value : undefined));
+  } catch {
+    // Budget exceeded — proceed with no enrichment this request rather
+    // than delaying the response further. Nothing found so far is kept;
+    // it's simply not attached.
+    return products;
+  }
+
+  const nutritionByName = new Map(targets.map((p, i) => [p.name, resolved[i]]));
+  return products.map(p => {
+    const nutrition = nutritionByName.get(p.name);
+    return nutrition ? { ...p, nutrition } : p;
+  });
 }
 
 /**
@@ -504,8 +576,30 @@ export async function performSearch(
     return a.product.price - b.product.price;
   });
 
+  const backfilled = backfillImagesFromSiblings(scored.map(s => s.product));
+
+  const nutritionStart = Date.now();
+  const nutritionEnriched = await enrichDirectMatchesWithNutrition(backfilled);
+  perfLog('search:nutrition-enrichment', {
+    ms: Date.now() - nutritionStart,
+    attempted: Math.min(nutritionEnriched.filter(p => p.matchType !== 'related').length, MAX_NUTRITION_ENRICHMENT),
+    resolved: nutritionEnriched.filter(p => p.nutrition != null).length,
+  });
+
+  // Synchronous and unbounded (no network, unlike nutrition enrichment
+  // above) — safe to run over every product, not just direct matches.
+  // Purely additive: same array length/order/every-other-field: only
+  // `canonicalId` is ever added, never removed or changed.
+  const canonicalStart = Date.now();
+  const enrichedProducts = enrichProductsWithCanonicalId(nutritionEnriched);
+  perfLog('search:canonical-enrichment', {
+    ms: Date.now() - canonicalStart,
+    resolved: enrichedProducts.filter(p => p.canonicalId != null).length,
+    total: enrichedProducts.length,
+  });
+
   const response: SearchResponse = {
-    products: backfillImagesFromSiblings(scored.map(s => s.product)),
+    products: enrichedProducts,
     storeStatuses,
     ...(correction.level !== 'none' && {
       correction: {

@@ -2,7 +2,7 @@ import type { StoreName } from '../models/types';
 import { getAllRecords, type PurchaseRecord } from './purchaseHistoryService';
 
 /**
- * Every "preference" ShopSmart knows about a shopper is counted straight
+ * Every "preference" CartIQ knows about a shopper is counted straight
  * out of their own real purchase history (see purchaseHistoryService) —
  * nothing here is asked for, configured, or assumed. There is no settings
  * screen backing this; it exists purely to bias recommendations (which

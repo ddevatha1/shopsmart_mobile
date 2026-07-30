@@ -1,4 +1,5 @@
 import { Platform, ViewStyle } from 'react-native';
+import { colors } from './colors';
 
 /** Consistent spacing scale used across every screen. */
 export const spacing = {
@@ -48,4 +49,31 @@ export const elevation = {
   low: shadow(2, 0.05, 4, 1),
   medium: shadow(4, 0.08, 10, 3),
   high: shadow(8, 0.12, 20, 8),
+};
+
+/**
+ * Surface tiers (Phase 7.1 follow-up) — the ONE shared definition of
+ * "how a grouped block of content is contained," so the exact drift
+ * this pass fixed by hand (15 components independently inventing the
+ * identical `white + borderWidth:1 + borderColor:borderGray` recipe,
+ * several doubling it with a shadow or a colored border on top) can't
+ * quietly recur one component at a time. Pick exactly one tier per
+ * surface — never add a border/shadow of your own on top of one of
+ * these.
+ *
+ * - `flat` — secondary/status info (preferences, history, suggestions).
+ *   No border, no shadow; groups by tint alone.
+ * - `tinted` — an "explained"/highlighted secondary section (why-chosen
+ *   blocks) — same idea as `flat`, mint instead of neutral.
+ * - `card` — the ONE primary/hero result on a screen (a real plan, a
+ *   real meal plan). Real shadow, no border — the one focal point.
+ * - `bordered` — dense grids only (ProductCard, PlanStoreSection),
+ *   where several adjacent shadows would read as visual noise and a
+ *   hairline border cleanly separates neighbors instead.
+ */
+export const surfaces = {
+  flat: { backgroundColor: colors.panelBg, borderRadius: radius.lg } satisfies ViewStyle,
+  tinted: { backgroundColor: colors.mint, borderRadius: radius.lg } satisfies ViewStyle,
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, ...elevation.medium } satisfies ViewStyle,
+  bordered: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray, borderRadius: radius.lg } satisfies ViewStyle,
 };

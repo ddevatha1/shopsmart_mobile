@@ -10,16 +10,17 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import type { ApiProduct } from '../models/types';
-import { colors, storeAccents } from '../theme/colors';
+import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
-import { elevation, radius, spacing } from '../theme/metrics';
+import { elevation, radius, spacing, surfaces } from '../theme/metrics';
 import { duration, easing, staggerDelay } from '../theme/motion';
 import { AnimatedPressable } from './AnimatedPressable';
 import { ProductImage } from './ProductImage';
+import { StoreLogo } from './StoreLogo';
 import { isOrganicProduct } from '../utils/filterProducts';
 
 /**
- * Mirrors shopsmart_web/src/components/ProductCard.tsx: store badge,
+ * Mirrors CartIQ_web/src/components/ProductCard.tsx: store badge,
  * add-to-cart button with checkmark feedback, "Organic" badge,
  * price/discount, brand, name, star rating, size, and pickup/
  * delivery fulfillment badges. Tap interactions replace the web's hover
@@ -44,10 +45,33 @@ interface Props {
   /** Short savings callout (e.g. "Save $2.10") shown alongside the price —
    * only meaningful together with `bestValue`. */
   savingsLabel?: string;
+  /** Phase 6 Part 5 — real, evidence-gated "why chosen" reasons (see
+   * recommendationExplanationService.ts's `explainProductSelection`,
+   * flattened to plain message strings by the caller). Capped to 2 here
+   * purely for card space — the caller decides which real reasons to
+   * pass, this component never invents or reorders them. Omitted by
+   * every caller that hasn't computed a real explanation for this
+   * product, which is the normal case and renders the card exactly as
+   * it always has. */
+  /* Phase 7.1 — capped to 1 here (was 2): three different mint-tinted
+   * pill styles (savings, why-chosen, fulfillment) were all competing
+   * for the same small card, all in the same color, all reading as the
+   * same generic "tag" widget. Showing the single strongest real
+   * reason keeps the card legible; ProductDetailScreen's own "Why
+   * CartIQ chose this" block still shows the full evidence list. */
+  whyChosenBadges?: string[];
+  /** Real, on-device price-history signal (see priceHistoryService.ts's
+   * `getStats`/`getStatsForMany`) — never shown for 'flat' (nothing
+   * meaningful to say) or when there isn't enough real observed history
+   * yet; omitted entirely by every caller that hasn't computed it, which
+   * renders the card exactly as it always has. Folded into the existing
+   * metaRow line rather than a new pill, per this card's own Phase 7.1
+   * "one glance of secondary facts" rule. */
+  priceTrend?: { trend: 'up' | 'down'; changePercent: number };
 }
 
 export function ProductCard({
-  product, onPress, onAddToCart, index = 0, unitPriceLabel, bestValue, savingsLabel,
+  product, onPress, onAddToCart, index = 0, unitPriceLabel, bestValue, savingsLabel, whyChosenBadges, priceTrend,
 }: Props) {
   const [cartFeedback, setCartFeedback] = useState(false);
   const cartFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -56,7 +80,6 @@ export function ProductCard({
       if (cartFeedbackTimeoutRef.current) clearTimeout(cartFeedbackTimeoutRef.current);
     };
   }, []);
-  const accent = storeAccents[product.store];
   const isOrganic = isOrganicProduct(product);
 
   const entrance = useSharedValue(0);
@@ -102,9 +125,7 @@ export function ProductCard({
         <View style={styles.imageWrap}>
           <ProductImage product={product} style={StyleSheet.absoluteFill} />
 
-          <View style={[styles.badge, { top: spacing.sm, left: spacing.sm, backgroundColor: accent.background }]}>
-            <Text style={[styles.badgeText, { color: accent.text }]}>{product.store}</Text>
-          </View>
+          <StoreLogo store={product.store} height={20} width={40} style={styles.storeLogoBadge} />
 
           <AnimatedPressable
             onPress={handleAddToCart}
@@ -150,6 +171,13 @@ export function ProductCard({
             </View>
           )}
 
+          {whyChosenBadges && whyChosenBadges.length > 0 && (
+            <View style={styles.whyChosenBadge}>
+              <Ionicons name="checkmark-circle" size={10} color={colors.green} />
+              <Text style={styles.whyChosenText} numberOfLines={1}>{whyChosenBadges[0]}</Text>
+            </View>
+          )}
+
           {!!product.brand && (
             <Text style={styles.brand} numberOfLines={1}>
               {product.brand.toUpperCase()}
@@ -159,24 +187,27 @@ export function ProductCard({
             {product.name}
           </Text>
 
-          <StarRating rating={product.rating} />
-
-          {!!product.size && <Text style={styles.size}>{product.size}</Text>}
-
-          {(product.pickupAvailable || product.deliveryAvailable) && (
-            <View style={styles.fulfillRow}>
-              {product.pickupAvailable && (
-                <View style={styles.fulfillChip}>
-                  <Text style={styles.fulfillText}>Pickup</Text>
-                </View>
-              )}
-              {product.deliveryAvailable && (
-                <View style={styles.fulfillChip}>
-                  <Text style={styles.fulfillText}>Delivery</Text>
-                </View>
-              )}
-            </View>
-          )}
+          {/* Phase 7.1 — rating, size, and fulfillment collapsed onto one
+              plain metadata line instead of a star row + a caption line
+              + a row of colored pill chips: three visually different
+              treatments for what is, to a shopper, one glance of
+              "secondary facts." Removes two repeated mint-pill chips
+              without losing any information. */}
+          <View style={styles.metaRow}>
+            <StarRating rating={product.rating} />
+            {(!!product.size || product.pickupAvailable || product.deliveryAvailable) && (
+              <Text style={styles.metaText} numberOfLines={1}>
+                {[product.size, product.pickupAvailable && 'Pickup', product.deliveryAvailable && 'Delivery']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            )}
+            {priceTrend && (
+              <Text style={[styles.trendText, { color: priceTrend.trend === 'down' ? colors.green : '#B45309' }]}>
+                {priceTrend.trend === 'down' ? '▼' : '▲'} {Math.abs(priceTrend.changePercent)}%
+              </Text>
+            )}
+          </View>
         </View>
       </AnimatedPressable>
     </Animated.View>
@@ -196,15 +227,13 @@ function StarRating({ rating }: { rating: number }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.borderGray,
-    overflow: 'hidden',
-    ...elevation.low,
-  },
+  // Phase 7.1 — border only, no shadow: in a dense 2-column grid,
+  // several adjacent drop shadows read as visual noise/mud, while a
+  // single hairline border cleanly separates neighboring cards. This is
+  // the one place in the app that deliberately keeps a border instead
+  // of switching to elevation — a tight grid is a genuinely different
+  // context from a single standalone card in a vertical stack.
+  card: { flex: 1, ...surfaces.bordered, overflow: 'hidden' },
   cardBestValue: {
     borderColor: colors.green,
     borderWidth: 1.5,
@@ -229,7 +258,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
   },
-  badgeText: { ...typography.caption, fontWeight: '600', color: colors.charcoal },
+  storeLogoBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    ...elevation.low,
+  },
   addButton: {
     position: 'absolute',
     top: spacing.sm,
@@ -257,6 +291,11 @@ const styles = StyleSheet.create({
   originalPrice: { color: `${colors.charcoal}66`, textDecorationLine: 'line-through', fontSize: 12 },
   discount: { color: colors.green, fontWeight: '700', fontSize: 11 },
   comparisonRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 1 },
+  whyChosenBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    backgroundColor: colors.mint, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 3, marginTop: 3,
+  },
+  whyChosenText: { color: colors.green, fontSize: 10, fontWeight: '700', flexShrink: 1 },
   unitPrice: { color: colors.green, fontWeight: '700', fontSize: 12 },
   savingsChip: { backgroundColor: colors.mint, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm },
   savingsChipText: { color: colors.green, fontSize: 10, fontWeight: '700' },
@@ -264,8 +303,7 @@ const styles = StyleSheet.create({
   name: { ...typography.cardTitle },
   stars: { color: colors.amber, fontSize: 10.5 },
   ratingNum: { color: `${colors.charcoal}66`, fontSize: 10.5 },
-  size: { ...typography.caption },
-  fulfillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 2 },
-  fulfillChip: { backgroundColor: colors.mint, paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill },
-  fulfillText: { color: colors.green, fontSize: 9.5, fontWeight: '600' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  trendText: { fontSize: 10.5, fontWeight: '700' },
+  metaText: { ...typography.caption, flexShrink: 1 },
 });

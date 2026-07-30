@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { SearchProgress } from '../SearchProgress';
@@ -10,8 +11,8 @@ import { useCartStore } from '../../store/cartStore';
 import { everyLineMatchesOriginal } from '../../services/planValidation';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing, radius } from '../../theme/metrics';
-import type { CartItem, PlanCandidate, StoreGroup } from '../../models/types';
+import { spacing, radius, surfaces } from '../../theme/metrics';
+import type { BudgetAnalysis, CartItem, PlanCandidate, StoreGroup } from '../../models/types';
 
 interface Props {
   visible: boolean;
@@ -23,6 +24,10 @@ interface Props {
    * has already resolved one — reused rather than re-fetched, same trip
    * preview the Advisor card already draws on. */
   currentTripMinutes: number | null;
+  /** The shopper's existing Profile weekly budget (see
+   * src/services/budgetService.ts), reused as-is — no new budget input
+   * here. Optional; omitted entirely skips the budget comparison line. */
+  budgetTarget?: number;
 }
 
 type Stage = 'idle' | 'loading' | 'result' | 'already-optimal' | 'error' | 'applied';
@@ -43,7 +48,11 @@ function currentCost(items: CartItem[]): number {
  * identical pipeline PlannerScreen already uses, so "after" is always a
  * real, fully-priced, fully-routed plan, never an estimate.
  */
-export function AutoOptimizeSheet({ visible, onClose, items, groups, zipcode, currentTripMinutes }: Props) {
+export function AutoOptimizeSheet({ visible, onClose, items, groups, zipcode, currentTripMinutes, budgetTarget }: Props) {
+  // Global Layout Fix (Issue 5) — same reasoning as StorePickerSheet: a
+  // Modal's content needs the real home-indicator inset added to its own
+  // bottom padding, or the last real action row sits flush against it.
+  const insets = useSafeAreaInsets();
   const applyOptimizedItems = useCartStore((s) => s.applyOptimizedItems);
   const undoLastOptimization = useCartStore((s) => s.undoLastOptimization);
 
@@ -68,7 +77,7 @@ export function AutoOptimizeSheet({ visible, onClose, items, groups, zipcode, cu
     setStage('loading');
     try {
       const plannerItems = items.map((i) => ({ id: i.product.id, rawText: i.product.name }));
-      const plan = await generateShoppingPlan(plannerItems, zipcode);
+      const plan = await generateShoppingPlan(plannerItems, zipcode, budgetTarget);
       const candidate = plan.candidates.find((c) => c.id === plan.recommendedId) ?? plan.candidates[0];
       if (!candidate) {
         setErrorMessage("Couldn't find a plan for the items in your cart.");
@@ -124,7 +133,7 @@ export function AutoOptimizeSheet({ visible, onClose, items, groups, zipcode, cu
             </AnimatedPressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: spacing.xl + insets.bottom }]} showsVerticalScrollIndicator={false}>
             {stage === 'idle' && (
               <View style={{ gap: spacing.lg }}>
                 <Text style={styles.subtitle}>
@@ -197,6 +206,12 @@ export function AutoOptimizeSheet({ visible, onClose, items, groups, zipcode, cu
                   </View>
                 </View>
 
+                {recommended.budgetAnalysis && (
+                  <Text style={[styles.budgetNote, recommended.budgetAnalysis.status === 'over' && styles.budgetNoteOver]}>
+                    {formatBudgetLine(recommended.budgetAnalysis)}
+                  </Text>
+                )}
+
                 <View style={{ gap: spacing.sm }}>
                   <Text style={styles.sectionTitle}>Optimized Route</Text>
                   {recommended.storeAssignments.map((assignment, i) => (
@@ -242,6 +257,16 @@ function formatMinutes(minutes: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
+/** Foundation-only: a plain one-line comparison, no chart/dashboard — see
+ * backend/src/services/budgetAnalysisService.ts for the underlying
+ * arithmetic this just puts into words. */
+function formatBudgetLine(budget: BudgetAnalysis): string {
+  const amount = Math.abs(budget.difference).toFixed(2);
+  if (budget.status === 'over') return `$${amount} over your target`;
+  if (budget.status === 'at_target') return `Right at your $${budget.target?.toFixed(0) ?? ''} target`;
+  return `Under budget by $${amount}`;
+}
+
 function StatRow({ stores, cost, minutes }: { stores: number; cost: number; minutes: number | null }) {
   return (
     <View style={styles.statRow}>
@@ -276,9 +301,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md,
   },
   closeButton: { padding: spacing.xs },
-  body: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
+  // paddingBottom is set dynamically at the call site (spacing.xl +
+  // insets.bottom) — see this component's own comment above.
+  body: { paddingHorizontal: spacing.lg, gap: spacing.md },
   subtitle: { color: `${colors.charcoal}8c`, fontSize: 13.5, textAlign: 'center' },
-  planCard: { backgroundColor: colors.panelBg, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  planCard: { ...surfaces.flat, padding: spacing.lg, gap: spacing.md },
   planCardTitle: { ...typography.cardTitle, fontSize: 13 },
   statRow: { flexDirection: 'row', justifyContent: 'space-around' },
   stat: { alignItems: 'center' },
@@ -297,12 +324,11 @@ const styles = StyleSheet.create({
   loadingCaption: { textAlign: 'center', color: `${colors.charcoal}66`, fontSize: 12, marginTop: -spacing.xl },
   centerState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: spacing.md },
   errorText: { color: colors.errorRed, fontSize: 13.5, textAlign: 'center' },
-  retryText: { color: colors.green, fontWeight: '600', fontSize: 14, textDecorationLine: 'underline' },
+  retryText: { color: colors.green, fontWeight: '700', fontSize: 14 },
   optimalTitle: { ...typography.h2, fontSize: 16, textAlign: 'center' },
   headline: { ...typography.h2, fontSize: 17, textAlign: 'center' },
   compareRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    backgroundColor: colors.panelBg, borderRadius: radius.lg, padding: spacing.lg,
+    ...surfaces.flat, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', padding: spacing.lg,
   },
   compareCol: { alignItems: 'center', gap: 2 },
   compareLabel: { color: `${colors.charcoal}80`, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
@@ -310,4 +336,6 @@ const styles = StyleSheet.create({
   compareCost: { color: colors.charcoal, fontWeight: '700', fontSize: 16 },
   compareAfterHighlight: { color: colors.green },
   sectionTitle: { ...typography.cardTitle, fontSize: 14 },
+  budgetNote: { color: colors.green, fontSize: 12, fontWeight: '600', textAlign: 'center', backgroundColor: colors.mint, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },
+  budgetNoteOver: { color: '#92400E', backgroundColor: '#FFFBEB' },
 });

@@ -1,4 +1,4 @@
-import type { StoreLocation } from '../../types/index.ts';
+import type { StoreLocation, WeeklyHours } from '../../types/index.ts';
 import { TtlCache } from '../../utils/ttlCache.ts';
 import { dedupeInFlight } from '../../utils/dedupeInFlight.ts';
 import { geocodeAddress, haversineDistanceMiles } from '../../utils/geocode.ts';
@@ -38,9 +38,52 @@ export interface KrogerLocationRecord {
   chain?: string;
   address?: { addressLine1?: string; city?: string; state?: string; zipCode?: string };
   geolocation?: { latitude?: number; longitude?: number };
+  // Untyped/`unknown`-mapped deliberately: Kroger's public Locations API
+  // documents a per-day `hours` object (day-name keys, `open`/`close`
+  // "HH:mm" strings), but this hasn't been verified against a live
+  // response in this environment (no network access here) — see
+  // `mapKrogerHours`'s own comment for exactly what that means for how
+  // conservatively it's parsed.
+  hours?: unknown;
 }
 
 const locationCache = new TtlCache<StoreLocation>(60 * 60 * 1000); // 1 hour
+
+const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const HH_MM_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Best-effort mapping of Kroger's Locations API `hours` field into this
+ * app's `WeeklyHours` contract (see backend/src/types/index.ts). Kroger's
+ * publicly documented per-day shape is `{ open: "HH:mm", close: "HH:mm" }`
+ * keyed by lowercase day name — but whether an ABSENT day in a live
+ * response means "closed that day" or "no data returned for that day"
+ * has NOT been verified against real traffic in this environment (no
+ * network access here to confirm). This deliberately never infers
+ * `closed: true` from a missing or malformed day — it only ever maps a
+ * day when the API gave a real, well-formed `open`/`close` pair for it.
+ * That keeps this conservative in the direction that matters: it can
+ * never mislabel an actually-open store as closed, even though it means
+ * some genuinely-closed Kroger days may still surface as "unknown" (see
+ * storeReliabilityService.ts) until this is verified against a live
+ * payload and extended. Never throws — any unexpected shape just yields
+ * `undefined` (or an entry-less day), the same as "no hours data."
+ */
+export function mapKrogerHours(raw: unknown): WeeklyHours | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const source = raw as Record<string, unknown>;
+
+  const result: WeeklyHours = {};
+  for (const day of DAY_KEYS) {
+    const entry = source[day];
+    if (!entry || typeof entry !== 'object') continue;
+    const { open, close } = entry as Record<string, unknown>;
+    if (typeof open === 'string' && typeof close === 'string' && HH_MM_PATTERN.test(open) && HH_MM_PATTERN.test(close)) {
+      result[day] = { open, close };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
 
 export function toStoreLocation(loc: KrogerLocationRecord, displayName: string): StoreLocation | undefined {
   const address = loc.address?.addressLine1;
@@ -59,6 +102,7 @@ export function toStoreLocation(loc: KrogerLocationRecord, displayName: string):
     longitude: loc.geolocation?.longitude,
     source: 'kroger-api',
     metadata: { locationId: loc.locationId, chain: loc.chain },
+    hours: mapKrogerHours(loc.hours),
   };
 }
 

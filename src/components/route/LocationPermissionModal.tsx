@@ -15,7 +15,7 @@ interface Props {
 /**
  * Pre-permission explainer shown once per app session before route
  * planning falls back to the OS's own low-context location prompt — a raw
- * "Allow ShopSmart to use your location?" dialog gives shoppers no reason
+ * "Allow CartIQ to use your location?" dialog gives shoppers no reason
  * to say yes, so this explains *why* first (a precise starting point for
  * driving directions, instead of a ZIP-code centroid), the same
  * "explain first" pattern StorePickerSheet uses for store selection.

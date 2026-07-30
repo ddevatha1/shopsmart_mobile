@@ -1,21 +1,44 @@
 /**
  * Smart Shopping Planner — the optimization engine. Ported from
- * shopsmart_web's src/services/shoppingPlanOptimizer.ts — see that file for
+ * CartIQ_web's src/services/shoppingPlanOptimizer.ts — see that file for
  * the full design rationale. Reuses this backend's own performSearch,
  * groceryTaxonomy, and tripPlanner exactly the way the web version reuses
  * its own copies of the same pieces.
  *
- * With at most 4 stores (Kroger/Aldi/Sprouts/Trader Joe's), every possible
- * combination of stores to visit is exactly the 15 non-empty subsets of a
- * 4-element set — small enough to brute-force *exactly* rather than reach
+ * With 5 stores (Trader Joe's/Sprouts/Kroger/Aldi/Harris Teeter —
+ * Albertsons is correctly excluded, see ALL_STORES below), every possible
+ * combination of stores to visit is exactly the 31 non-empty subsets of a
+ * 5-element set — small enough to brute-force *exactly* rather than reach
  * for a heuristic/approximate solver.
  *
  * No fabricated data: "freshness"/"store reliability"/"store hours" are
  * NOT scored anywhere in here — no real data source for any of them
- * exists in this app.
+ * exists in this app. The one exception, added deliberately and
+ * documented precisely where it happens (see `withNutritionScore`/
+ * `selectHealthiest`): the `'healthiest'` candidate scores real,
+ * already-extracted `NutritionAttributes` data (see
+ * routes/productImage.ts) — never an estimate for a product with no
+ * data, and never surfaced at all when no product in the plan has any.
+ *
+ * Budget Guardian (v1, foundation only — see `withBudgetAnalysis`): an
+ * optional shopper-chosen `budgetTarget` is compared against each already-
+ * selected candidate's real `totalCost`, purely as arithmetic decoration
+ * after the fact. It does not steer `evaluateSubset`/`selectCandidates`
+ * toward cheaper choices — that would be actual budget optimization, a
+ * separate, later change this sprint deliberately does not make.
+ *
+ * Store Reliability Foundation (v1 — see `excludeKnownClosedStores`): a
+ * product whose store is CONFIRMED closed right now (see
+ * storeReliabilityService.ts's `isKnownClosed`) is removed from
+ * consideration before subset evaluation even starts — a correctness
+ * filter, not a ranking weight. A store with unknown or open hours is
+ * completely unaffected; `evaluateSubset`/`selectCandidates` themselves
+ * are untouched by this, same separation as the two decorations above.
  */
 import type {
   ApiProduct,
+  BudgetAnalysis,
+  NutritionScore,
   PlanCandidate,
   PlanCandidateId,
   PlanLineItem,
@@ -29,13 +52,24 @@ import type {
 import { performSearch } from './searchService.ts';
 import { GROCERY_TAXONOMY, classifyProductSubtype } from '../data/groceryTaxonomy.ts';
 import { planTrip } from './tripPlanner.ts';
+import { computeNutritionScore } from './nutritionScoringService.ts';
+import { computeBudgetAnalysis, isValidBudgetTarget } from './budgetAnalysisService.ts';
+import { isKnownClosed } from './storeReliabilityService.ts';
 import { perfLog } from '../utils/perfLog.ts';
 
 // No shared StoreName export in this backend's types/index.ts (same
 // convention as searchService.ts) — derived locally instead.
 type StoreName = ApiProduct['store'];
 
-const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'];
+// Harris Teeter was missing here even though searchService.ts's own
+// ALL_STORES includes it (it's a real Kroger-API banner with genuine
+// product data) — items only carried there were silently excluded from
+// every brute-forced subset and could land in unresolvedItems even
+// though search finds them. Albertsons is correctly absent: it has no
+// product data source at all (see albertsonsLiveScraper.ts), so a subset
+// containing it would never resolve any item anyway. Exported so tests
+// can assert against it directly.
+export const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Harris Teeter'];
 
 // ~25 mpg average vehicle, ~$3.50/gal — a documented, clearly-labeled
 // approximation, not a real per-trip fuel measurement.
@@ -45,10 +79,31 @@ const DEFAULT_WEIGHTS: PlanWeights = { cost: 0.35, time: 0.25, distance: 0.15, f
 
 // ─── Step 1: resolve each list item to its candidate products ─────────────
 
-interface ItemCandidates {
+export interface ItemCandidates {
   item: PlannerListItem;
   candidates: ApiProduct[];
   alternativeSuggestion?: ApiProduct;
+}
+
+/**
+ * Removes, from each item's candidate list, any product whose store is
+ * CONFIRMED closed right now — never one whose hours are merely unknown
+ * (see storeReliabilityService.ts's `isKnownClosed` for that asymmetry).
+ * A product with no `location` at all is left in place: it has no hours
+ * to check, and `evaluateSubset`'s own existing filter already excludes
+ * any product without a `location` regardless of this function.
+ *
+ * Runs BEFORE subset evaluation, not as part of it — `evaluateSubset` and
+ * `selectCandidates` are completely unaware this filter exists, so no
+ * ranking/scoring logic changes; a closed store's product simply isn't
+ * an option any subset can pick, the same as if search had never
+ * returned it for that store at all.
+ */
+export function excludeKnownClosedStores(itemCandidates: ItemCandidates[], currentDate: Date = new Date()): ItemCandidates[] {
+  return itemCandidates.map(ic => ({
+    ...ic,
+    candidates: ic.candidates.filter(p => !p.location || !isKnownClosed(p.location, currentDate)),
+  }));
 }
 
 async function resolveItemCandidates(item: PlannerListItem, zipcode: string): Promise<ItemCandidates> {
@@ -102,6 +157,27 @@ export interface SubsetPlan {
   itemsFound: number;
   itemsTotal: number;
   tripPlan: TripPlan;
+  /** Set by `withNutritionScore`, a step AFTER `evaluateSubset` runs, not
+   * inside it — Healthiest v1 ranks the same cheapest-per-store
+   * selection every other mode already uses, it does not change which
+   * product `evaluateSubset` picks per item (see this file's header for
+   * why that's a deliberately separate, larger future change). Despite
+   * the field's singular name (matching the sprint's own naming), it
+   * holds the full structured `NutritionScore` breakdown, not a bare
+   * number — `selectCandidates`'s healthiest ranking needs `confidence`
+   * as a tie-breaker, not just `score`. */
+  totalNutritionScore?: NutritionScore;
+}
+
+/** Decorates an already-evaluated `SubsetPlan` with its aggregate
+ * nutrition score, computed from the exact products `evaluateSubset`
+ * already selected (`storeAssignments[].items[].product`) — no new
+ * search, no new selection, no change to `evaluateSubset` itself. */
+function withNutritionScore(plan: SubsetPlan): SubsetPlan {
+  const products = plan.storeAssignments.flatMap(a =>
+    a.items.map(i => i.product).filter((p): p is ApiProduct => p != null),
+  );
+  return { ...plan, totalNutritionScore: computeNutritionScore(products) };
 }
 
 async function evaluateSubset(
@@ -169,7 +245,8 @@ async function evaluateSubset(
   };
 }
 
-// ─── Step 3: score subsets into the 4 output candidates ────────────────────
+// ─── Step 3: score subsets into the output candidates (balanced/cheapest/
+// fastest/fewest-stops always; healthiest only when nutrition data allows) ──
 
 function normalize(value: number, min: number, max: number, lowerIsBetter: boolean): number {
   if (max === min) return 1;
@@ -186,7 +263,13 @@ function scorePlan(plan: SubsetPlan, ranges: Record<'cost' | 'time' | 'distance'
   );
 }
 
-function toPlanCandidate(id: PlanCandidateId, label: string, plan: SubsetPlan, singleStoreBaseline: number | null): PlanCandidate {
+function toPlanCandidate(
+  id: PlanCandidateId,
+  label: string,
+  plan: SubsetPlan,
+  singleStoreBaseline: number | null,
+  nutritionScore?: NutritionScore,
+): PlanCandidate {
   const estimatedSavings = singleStoreBaseline != null ? Math.max(0, singleStoreBaseline - plan.totalCost) : 0;
 
   for (const assignment of plan.storeAssignments) {
@@ -225,7 +308,40 @@ function toPlanCandidate(id: PlanCandidateId, label: string, plan: SubsetPlan, s
     itemsFound: plan.itemsFound,
     itemsTotal: plan.itemsTotal,
     tripPlan: plan.tripPlan,
+    ...(nutritionScore && { nutritionScore }),
   };
+}
+
+function confidenceRank(confidence: NutritionScore['confidence']): number {
+  return confidence === 'high' ? 2 : confidence === 'partial' ? 1 : 0;
+}
+
+/**
+ * Ranks the SAME `covering` (max-coverage) plans every other mode
+ * already ranks from, by aggregate nutrition score — never a separate,
+ * lower-coverage candidate pool. Returns `null` when not one `covering`
+ * plan has any usable nutrition signal at all, which is exactly what
+ * makes Healthiest mode "unavailable" rather than an arbitrary pick with
+ * a fabricated score (see selectCandidates, which omits the candidate
+ * entirely in that case).
+ *
+ * Tie-breakers, in order, per the sprint brief ("do not invent other
+ * preferences"): higher confidence, then lower cost, then fewer stores —
+ * the same style of deterministic, fully-ordered comparator every other
+ * mode here already uses.
+ */
+function selectHealthiest(covering: SubsetPlan[]): SubsetPlan | null {
+  const withScore = covering.filter(p => p.totalNutritionScore?.score != null);
+  if (withScore.length === 0) return null;
+
+  return [...withScore].sort((a, b) => {
+    const scoreDiff = b.totalNutritionScore!.score! - a.totalNutritionScore!.score!;
+    if (scoreDiff !== 0) return scoreDiff;
+    const confidenceDiff = confidenceRank(b.totalNutritionScore!.confidence) - confidenceRank(a.totalNutritionScore!.confidence);
+    if (confidenceDiff !== 0) return confidenceDiff;
+    if (a.totalCost !== b.totalCost) return a.totalCost - b.totalCost;
+    return a.storeCount - b.storeCount;
+  })[0];
 }
 
 export function selectCandidates(subsetPlans: SubsetPlan[], weights: PlanWeights): PlanCandidate[] {
@@ -252,12 +368,40 @@ export function selectCandidates(subsetPlans: SubsetPlan[], weights: PlanWeights
   };
   const balanced = [...covering].sort((a, b) => scorePlan(b, ranges, weights) - scorePlan(a, ranges, weights))[0];
 
-  return [
+  const candidates: PlanCandidate[] = [
     toPlanCandidate('balanced', 'Balanced', balanced, singleStoreBaseline),
     toPlanCandidate('cheapest', 'Cheapest', cheapest, singleStoreBaseline),
     toPlanCandidate('fastest', 'Fastest', fastest, singleStoreBaseline),
     toPlanCandidate('fewest-stops', 'Fewest Stops', fewestStops, singleStoreBaseline),
   ];
+
+  // Omitted entirely (not pushed with a null/fake score) when no
+  // covering plan has any nutrition signal — "unavailable," per the
+  // sprint brief, means absent from the response, not present-but-empty.
+  const healthiest = selectHealthiest(covering);
+  if (healthiest) {
+    candidates.push(toPlanCandidate('healthiest', 'Healthiest', healthiest, singleStoreBaseline, healthiest.totalNutritionScore));
+  }
+
+  return candidates;
+}
+
+/**
+ * Decorates every candidate with a `BudgetAnalysis` against the same
+ * shopper-chosen `budgetTarget` — unlike `withNutritionScore`, this runs
+ * AFTER candidate selection (`selectCandidates`), not before, since it
+ * needs each candidate's final `totalCost`, and it never influences which
+ * candidates were chosen or how they were ranked. An invalid target
+ * (missing, zero, negative, non-finite) leaves every candidate exactly as
+ * `selectCandidates` produced it — never a comparison against a
+ * nonsensical value.
+ */
+export function withBudgetAnalysis(candidates: PlanCandidate[], budgetTarget: number | undefined): PlanCandidate[] {
+  if (!isValidBudgetTarget(budgetTarget)) return candidates;
+  return candidates.map(candidate => ({
+    ...candidate,
+    budgetAnalysis: computeBudgetAnalysis(candidate.totalCost, budgetTarget) satisfies BudgetAnalysis,
+  }));
 }
 
 // ─── Public entry point ─────────────────────────────────────────────────────
@@ -266,10 +410,14 @@ export async function buildShoppingPlan(
   items: PlannerListItem[],
   zipcode: string,
   weights: PlanWeights = DEFAULT_WEIGHTS,
+  budgetTarget?: number,
 ): Promise<ShoppingPlanResponse> {
-  perfLog('planner:optimization-start', { itemCount: items.length, zipcode, weights });
+  perfLog('planner:optimization-start', { itemCount: items.length, zipcode, weights, budgetTarget: budgetTarget ?? null });
 
-  const itemCandidates = await Promise.all(items.map(item => resolveItemCandidates(item, zipcode)));
+  const resolvedItemCandidates = await Promise.all(items.map(item => resolveItemCandidates(item, zipcode)));
+  // A correctness filter, not part of resolution or evaluation itself —
+  // see excludeKnownClosedStores's own comment and this file's header.
+  const itemCandidates = excludeKnownClosedStores(resolvedItemCandidates);
 
   const subsets = allNonEmptySubsets(ALL_STORES);
   const subsetResults = await Promise.allSettled(
@@ -293,7 +441,11 @@ export async function buildShoppingPlan(
     throw new Error('Could not build a shopping plan — no store had usable results for this list near this ZIP code.');
   }
 
-  const candidates = selectCandidates(subsetPlans, weights);
+  // A decoration pass, not a change to evaluateSubset's own selection —
+  // see withNutritionScore's own comment.
+  const subsetPlansWithNutrition = subsetPlans.map(withNutritionScore);
+
+  const candidates = withBudgetAnalysis(selectCandidates(subsetPlansWithNutrition, weights), budgetTarget);
 
   const unresolvedItems: PlanLineItem[] = itemCandidates
     .filter(ic => ic.candidates.length === 0)

@@ -82,7 +82,7 @@ async function getToken(): Promise<string> {
 // on the same official API, not a different integration. Adding another
 // verified banner (e.g. Ralphs, Fred Meyer, King Soopers) later is a new
 // entry here, not new code.
-interface KrogerBanner {
+export interface KrogerBanner {
   storeName: ApiProduct['store'];
   /** Kroger's own Locations API `chain` code for this banner — verified
    * live, not guessed (see krogerLocator.ts's header comment). */
@@ -112,9 +112,16 @@ interface KrogerPrice {
   regular: number;
   promo: number;
 }
-interface KrogerItem {
+export interface KrogerInventory {
+  stockLevel?: string;
+}
+export interface KrogerItem {
   size?: string;
   price?: KrogerPrice;
+  // Real per-store fields, confirmed live (docs/store_api_audit.md's
+  // Kroger "Bonus finding") — `inventory.stockLevel` is a coarse string
+  // like "HIGH"/"LOW"/"TEMPORARILY_OUT_OF_STOCK", not a count.
+  inventory?: KrogerInventory;
 }
 interface KrogerImageSize {
   id: string;
@@ -124,12 +131,20 @@ interface KrogerImage {
   perspective: string;
   sizes: KrogerImageSize[];
 }
-interface KrogerProduct {
+interface KrogerRatingsAndReviews {
+  averageOverallRating?: number;
+  totalReviewCount?: number;
+}
+export interface KrogerProduct {
   productId: string;
   brand?: string;
   description?: string;
   items?: KrogerItem[];
   images?: KrogerImage[];
+  // Real Kroger review data, confirmed live but previously unmapped (see
+  // this file's `mapKrogerProduct`) — absent for many products, never
+  // assumed present.
+  ratingsAndReviews?: KrogerRatingsAndReviews;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,7 +163,42 @@ function getBestImageUrl(images?: KrogerImage[]): string | undefined {
   return sizes[0]?.url;
 }
 
-function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined, banner: KrogerBanner): ApiProduct | null {
+// A handful of documented Kroger `stockLevel` values genuinely mean "not
+// orderable right now" — everything else (including a value this app
+// doesn't recognize yet) is treated as in stock, same as the absence of
+// the field entirely. Never a guess in the other direction: an
+// unrecognized non-empty value is not treated as OUT of stock just
+// because it's unfamiliar.
+const OUT_OF_STOCK_LEVELS = new Set(['TEMPORARILY_OUT_OF_STOCK', 'OUT_OF_STOCK']);
+
+/** Real Kroger review data when the API actually returned it for this
+ * product (confirmed live — docs/store_api_audit.md's Kroger "Bonus
+ * finding"); many products don't carry it, so this falls back to the
+ * same deterministic synthetic rating this file always used rather than
+ * ever showing a fabricated "real" value alongside genuine ones with no
+ * way to tell them apart. */
+function resolveRating(p: KrogerProduct): { rating: number; reviewCount: number } {
+  const real = p.ratingsAndReviews;
+  if (real?.averageOverallRating != null && real.totalReviewCount != null) {
+    return { rating: real.averageOverallRating, reviewCount: real.totalReviewCount };
+  }
+  const seed = hashCode(p.productId);
+  return {
+    rating: Math.round((3.8 + (seed % 12) / 10) * 10) / 10,
+    reviewCount: 20 + (seed % 2000),
+  };
+}
+
+/** Real per-store stock level when the API returned one; `undefined`
+ * (the common case) keeps this app's long-standing default of assuming
+ * in stock rather than treating "no data" as "unavailable." */
+function resolveInStock(item: KrogerItem | undefined): boolean {
+  const stockLevel = item?.inventory?.stockLevel;
+  if (!stockLevel) return true;
+  return !OUT_OF_STOCK_LEVELS.has(stockLevel.toUpperCase());
+}
+
+export function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined, banner: KrogerBanner): ApiProduct | null {
   const description = stripTrademarks(p.description ?? '').trim();
   if (!description) return null;
 
@@ -162,9 +212,7 @@ function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined,
   const hasSale = promoPrice > 0 && promoPrice < regularPrice;
   const price = hasSale ? promoPrice : regularPrice;
 
-  const seed = hashCode(p.productId);
-  const rating = Math.round((3.8 + (seed % 12) / 10) * 10) / 10;
-  const reviewCount = 20 + (seed % 2000);
+  const { rating, reviewCount } = resolveRating(p);
 
   return {
     id: `${banner.idSlug}-${p.productId}`,
@@ -180,7 +228,7 @@ function mapKrogerProduct(p: KrogerProduct, location: StoreLocation | undefined,
     isLiveData: true,
     store: banner.storeName,
     location,
-    inStock: true,
+    inStock: resolveInStock(item),
   };
 }
 

@@ -5,7 +5,7 @@ import { colors } from '../theme/colors';
 
 /**
  * Mirrors the category-matching logic in
- * shopsmart_web/src/utils/groceryFallbackImage.ts exactly (same keyword
+ * CartIQ_web/src/utils/groceryFallbackImage.ts exactly (same keyword
  * groups, same precedence order) but renders a native vector icon instead
  * of an embedded SVG data URI — there's no reason to parse SVG strings in
  * React Native when @expo/vector-icons (bundled with every Expo project)

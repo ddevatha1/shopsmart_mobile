@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
+import { spacing } from '../theme/metrics';
 
 /** Mirrors ErrorPanel in page.tsx — error state with actionable self-fixes. */
 const TIPS = [
@@ -65,7 +66,13 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   tipsHeader: { fontWeight: '600', fontSize: 13, color: colors.charcoal, marginBottom: 10 },
-  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
+  // Phase 7.1 follow-up — the two values here that exactly matched the
+  // shared spacing scale were moved onto it; the surrounding literals
+  // (24, 14, 6, 10) don't map cleanly onto the scale and were left as
+  // this component's own already-tuned values rather than risk a visual
+  // change with no way to verify it (this file predates the shared
+  // theme system and was out of this pass's named scope).
+  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.sm },
   tipBullet: {
     width: 18,
     height: 18,

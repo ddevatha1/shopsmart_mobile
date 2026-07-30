@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedPressable } from '../AnimatedPressable';
-import type { PlanStoreAssignment } from '../../models/types';
+import { PlanItemProductGrid } from './PlanItemProductGrid';
+import type { ApiProduct, PlanStoreAssignment } from '../../models/types';
 import { colors, storeAccents } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radius } from '../../theme/metrics';
@@ -10,14 +11,33 @@ import { spacing, radius } from '../../theme/metrics';
 interface Props {
   index: number;
   assignment: PlanStoreAssignment;
+  /** Optional — when provided (see PlanResultsView.tsx/ShoppingSessionPlanCard.tsx,
+   * both of which have real navigation available), tapping a product card
+   * opens it. Omitted call sites (e.g. AutoOptimizeSheet.tsx, a modal with
+   * no navigation context) just don't navigate — never a fabricated
+   * fallback destination. */
+  onPressProduct?: (product: ApiProduct) => void;
+  /** Optional (Phase 6 Part 5) — threaded straight through to
+   * `PlanItemProductGrid` for real "why chosen" badges. See that file's
+   * own header comment. */
+  ownerEmail?: string;
 }
 
-/** One store's card within the plan results — collapsed to name/count/
- * subtotal by default (progressive disclosure), expandable to the full
- * item list. Mirrors shopsmart_web's PlanStoreSection.tsx; visual pattern
- * borrowed from RouteScreen's StopCard. */
-export function PlanStoreSection({ index, assignment }: Props) {
-  const [expanded, setExpanded] = useState(false);
+/**
+ * One store's card within the plan results — name/count/subtotal plus
+ * this store's real product cards, expanded by default (Phase 7 P0-1:
+ * a judge/shopper should see real products immediately, not after
+ * manually expanding every store — collapsing was undermining this
+ * app's own best demo moment). Collapse/expand is preserved as a
+ * progressive-disclosure option, just no longer the default. Phase 5.5
+ * Part 2: the actual card rendering lives entirely in
+ * `PlanItemProductGrid` (the universal "Shopping Item Card Renderer" —
+ * used identically by PlannerScreen and AssistantScreen) — this
+ * component's only remaining job is the collapsible store-header chrome
+ * (badge, name, subtotal, chevron).
+ */
+export function PlanStoreSection({ index, assignment, onPressProduct, ownerEmail }: Props) {
+  const [expanded, setExpanded] = useState(true);
   const accent = storeAccents[assignment.store];
 
   return (
@@ -35,13 +55,8 @@ export function PlanStoreSection({ index, assignment }: Props) {
       </AnimatedPressable>
 
       {expanded && (
-        <View style={styles.itemList}>
-          {assignment.items.map(line => (
-            <View key={line.listItemId} style={styles.itemRow}>
-              <Text style={styles.itemName} numberOfLines={1}>{line.product?.name ?? line.rawText}</Text>
-              <Text style={styles.itemPrice}>{typeof line.product?.price === 'number' ? `$${line.product.price.toFixed(2)}` : '—'}</Text>
-            </View>
-          ))}
+        <View style={styles.itemGridWrap}>
+          <PlanItemProductGrid items={assignment.items} onPressProduct={onPressProduct} ownerEmail={ownerEmail} />
         </View>
       )}
     </View>
@@ -56,8 +71,5 @@ const styles = StyleSheet.create({
   storeName: { ...typography.cardTitle, fontSize: 14 },
   itemCount: { color: `${colors.charcoal}80`, fontSize: 12, marginTop: 1 },
   subtotal: { color: colors.charcoal, fontWeight: '800', fontSize: 14 },
-  itemList: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderGray, paddingTop: spacing.md },
-  itemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  itemName: { flex: 1, color: `${colors.charcoal}bf`, fontSize: 13 },
-  itemPrice: { color: `${colors.charcoal}99`, fontSize: 13, fontWeight: '500' },
+  itemGridWrap: { padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderGray },
 });

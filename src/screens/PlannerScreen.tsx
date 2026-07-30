@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenContainer } from '../components/ScreenContainer';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { SearchProgress } from '../components/SearchProgress';
@@ -13,13 +14,16 @@ import { useCartStore } from '../store/cartStore';
 import { parseListInput, analyzeItems, applyAmbiguityAnswers } from '../services/plannerAmbiguityService';
 import { getAllPreferences, setPreference } from '../services/plannerPreferenceService';
 import { generateShoppingPlan } from '../services/plannerService';
+import { getPreferences } from '../services/shopperPreferenceService';
+import { collectPlanCandidateProducts } from '../utils/planProducts';
 import { ApiError } from '../services/apiClient';
 import { perfLog } from '../utils/perfLog';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing, radius } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
-import type { AmbiguityPrompt, CartItem, PlanCandidate, PlannerListItem, ShoppingPlanResponse } from '../models/types';
+import type { AmbiguityPrompt, ApiProduct, CartItem, PlanCandidate, PlannerListItem, ShoppingPlanResponse } from '../models/types';
+import type { PreferencesUsed } from '../services/recommendationExplanationService';
 
 type Step = 'input' | 'clarify' | 'loading' | 'results' | 'error';
 
@@ -27,39 +31,56 @@ const PLACEHOLDER = 'milk\neggs\nchicken\nbread\nbananas\nyogurt\ncereal';
 
 /**
  * The Smart Shopping Planner — one screen, internal step state, per the
- * "minimize screens" requirement. Mirrors shopsmart_web's
+ * "minimize screens" requirement. Mirrors CartIQ_web's
  * app/planner/page.tsx. Ambiguity resolution (analyzeItems) runs entirely
  * on-device/instantly, so the clarify step only ever appears when it
  * genuinely improves the plan and is skipped outright otherwise.
  */
 export function PlannerScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Planner'>>();
   const user = useUserStore(s => s.user);
   const setCart = useCartStore(s => s.setCart);
   const zipcode = user?.zipcode ?? '';
 
   const [step, setStep] = useState<Step>('input');
-  const [listText, setListText] = useState('');
+  // Phase 5.0: pre-filled only when arriving from AssistantScreen's "Open
+  // in Planner" action (see navigation/types.ts's `prefillText`) — still
+  // just fills the text box, same as if the shopper had typed it
+  // themselves; nothing is submitted until they press "Create My Plan".
+  const [listText, setListText] = useState(route.params?.prefillText ?? '');
   const [resolvedItems, setResolvedItems] = useState<PlannerListItem[]>([]);
   const [prompts, setPrompts] = useState<AmbiguityPrompt[]>([]);
   const [answers, setAnswers] = useState<Record<string, string | null>>({});
   const [rememberChoices, setRememberChoices] = useState(true);
   const [plan, setPlan] = useState<ShoppingPlanResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Phase 5.4 Part 4 — real, already-stored preferences (see
+  // shopperPreferenceService.ts), used only to build a real "why"
+  // explanation (see PlanResultsView.tsx) — never sent to the optimizer.
+  const [preferencesUsed, setPreferencesUsed] = useState<PreferencesUsed | undefined>(undefined);
 
   const canSubmit = listText.trim().length > 0 && zipcode.length === 5;
 
   const runOptimization = useCallback(async (items: PlannerListItem[]) => {
     setStep('loading');
     try {
-      const result = await generateShoppingPlan(items, zipcode);
+      const result = await generateShoppingPlan(items, zipcode, user?.weeklyBudget);
       setPlan(result);
+      if (user?.email) {
+        const prefs = await getPreferences(user.email);
+        setPreferencesUsed(
+          prefs.preferredStores?.length || prefs.optimizationPreference
+            ? { stores: prefs.preferredStores, optimizationPreference: prefs.optimizationPreference }
+            : undefined,
+        );
+      }
       setStep('results');
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Could not build a shopping plan.');
       setStep('error');
     }
-  }, [zipcode]);
+  }, [zipcode, user?.weeklyBudget, user?.email]);
 
   const handleCreatePlan = async () => {
     if (!canSubmit || !user) return;
@@ -122,19 +143,8 @@ export function PlannerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <AnimatedPressable
-          onPress={handleBack}
-          style={styles.backButton}
-          scaleTo={0.9}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.charcoal} />
-        </AnimatedPressable>
-        <Text style={styles.headerTitle}>Smart Shopping Planner</Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <ScreenContainer>
+      <ScreenHeader title="Smart Shopping Planner" onBack={handleBack} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
@@ -233,25 +243,24 @@ export function PlannerScreen() {
               recommendedId={plan.recommendedId}
               unresolvedItems={plan.unresolvedItems}
               onStartShopping={handleStartShopping}
+              preferencesUsed={preferencesUsed}
+              ownerEmail={user?.email}
+              onPressProduct={(product) => {
+                // A real, complete list of every product this plan
+                // actually resolved — never a fabricated "related
+                // products" set. See utils/planProducts.ts.
+                const allProducts: ApiProduct[] = plan.candidates.flatMap(collectPlanCandidateProducts);
+                navigation.navigate('ProductDetail', { product, allProducts });
+              }}
             />
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.white },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-  },
-  backButton: {
-    width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.panelBg,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  headerTitle: { fontWeight: '700', fontSize: 16, color: colors.charcoal },
   body: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   title: { ...typography.h1, fontSize: 22, marginBottom: spacing.xs },
   subtitle: { color: `${colors.charcoal}8c`, fontSize: 13.5 },

@@ -54,7 +54,7 @@ async function fetchPreciseCoords(storeNumber: string): Promise<{ latitude: numb
   try {
     const res = await withTimeout(
       fetch(`${SPROUTS_STORE_DETAIL_URL}/${storeNumber}`, {
-        headers: { 'User-Agent': 'ShopSmartMobile/1.0 (grocery price comparison app)' },
+        headers: { 'User-Agent': 'CartIQMobile/1.0 (grocery price comparison app)' },
       }),
       8000,
       'Sprouts store detail',

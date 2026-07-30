@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <Ionicons name="alert-circle-outline" size={48} color={colors.errorRed} />
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.detail}>
-            ShopSmart ran into an unexpected error. Your cart and account are safe — try again.
+            CartIQ ran into an unexpected error. Your cart and account are safe — try again.
           </Text>
           <AnimatedPressable onPress={this.reset} style={styles.button} scaleTo={0.97}>
             <Text style={styles.buttonText}>Try Again</Text>

@@ -1,6 +1,6 @@
 /**
  * Smart Shopping Planner — list intake + ambiguity resolution. Ported from
- * shopsmart_web's src/services/plannerAmbiguityService.ts.
+ * CartIQ_web's src/services/plannerAmbiguityService.ts.
  *
  * Entirely synchronous, dependency-free (no network, no server round trip):
  * findTaxonomyEntry/classifyProductSubtype's taxonomy data already covers

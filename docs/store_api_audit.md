@@ -1,14 +1,14 @@
-# ShopSmart Store API Audit
+# CartIQ Store API Audit
 
 **Purpose:** the engineering reference for every current and prospective grocery-retailer
-integration in ShopSmart. The goal is *not* "support as many stores as possible" — it's
+integration in CartIQ. The goal is *not* "support as many stores as possible" — it's
 identifying which retailers can supply reliable, maintainable, accurate pricing and store
 data over the long term, and being explicit about which ones can't, even when data for them
 technically exists somewhere online.
 
 This audit reflects the code as of this branch (`feat/retailer-api-expansion`), read directly
 from `backend/src/services/*LiveScraper.ts` and `backend/src/services/locators/*.ts`. Where a
-claim is about a retailer ShopSmart does *not* yet integrate, it's marked as research/estimate
+claim is about a retailer CartIQ does *not* yet integrate, it's marked as research/estimate
 rather than verified-in-code.
 
 **Update (Phase 2):** Harris Teeter is now implemented (Section 1) after live verification
@@ -23,7 +23,7 @@ section at the end ranks every researched retailer by effort, maintainability, a
 
 ## 1. Audit of Current Integrations
 
-ShopSmart currently wires in six retailers via `backend/src/services/searchService.ts`'s
+CartIQ currently wires in six retailers via `backend/src/services/searchService.ts`'s
 `performSearch`, which fans out to all six in parallel with `Promise.allSettled` and never lets
 one store's failure affect another's.
 
@@ -201,7 +201,7 @@ depends entirely on:
 1. An undocumented, unversioned GraphQL schema with a hardcoded persisted-query hash that Aldi's
    platform vendor (Instacart) could rotate at any time with zero notice.
 2. A private third-party platform (not even Aldi's own infrastructure) whose stability is out of
-   both ShopSmart's and Aldi's direct control.
+   both CartIQ's and Aldi's direct control.
 
 No documented rate limits exist for this endpoint, so throttling risk is unknown and unmanaged.
 
@@ -395,7 +395,7 @@ for this phase, but **[Research]**: given Harris Teeter's `chain` code turned ou
 queryable Locations API field (`filter.chain=HART`), it's a reasonable expectation that these
 banners work the identical way, each needing only its own confirmed `chain` code — the same
 one-banner-at-a-time pattern this file's `KrogerBanner` config now supports. Worth a follow-up
-audit if/when ShopSmart's geographic footprint expands toward those regions (mostly
+audit if/when CartIQ's geographic footprint expands toward those regions (mostly
 Midwest/West).
 
 ### Albertsons family
@@ -543,14 +543,14 @@ Joe's, all three of which serve real content to the identical request.
 **Classification: Not Recommended** — reclassified from the prior audit's "Experimental" based on
 this verified finding. The "structurally similar to Aldi/Sprouts" hypothesis from the prior audit
 did not hold up against a live check; Meijer's edge posture is closer to Walmart/Target than to
-any of ShopSmart's three currently-working undocumented-API integrations (Aldi, Sprouts, Trader
+any of CartIQ's three currently-working undocumented-API integrations (Aldi, Sprouts, Trader
 Joe's).
 
 ### Publix
 
 No public API. Notably, Publix has a real, known history of aggressively pursuing anti-scraping
 enforcement in the grocery-scraper community — a materially different risk posture than any of
-ShopSmart's six currently-working "quiet" integrations, none of which have drawn that kind of
+CartIQ's six currently-working "quiet" integrations, none of which have drawn that kind of
 attention. High regional user demand (Southeast) does not offset this.
 
 **Classification: Not Recommended** — this is the clearest case in this audit of "high demand,
@@ -591,7 +591,7 @@ bot-management at the edge.
 
 **Classification: Not Recommended** — reclassified from the prior audit's "Experimental" based on
 this verified finding, for the same reason as Meijer and H-E-B: confirmed edge-level bot defense
-puts this outside the risk profile of ShopSmart's working undocumented-API integrations.
+puts this outside the risk profile of CartIQ's working undocumented-API integrations.
 
 ### Classification summary table
 
@@ -649,7 +649,7 @@ cost — a cheap integration that only adds locations without prices repeats Alb
 4. **Kroger's other banners** (Ralphs, Fred Meyer, King Soopers, Smith's, QFC, and others) — not
    investigated this phase, but a reasonable next candidate given Harris Teeter's success: same
    API, same OAuth client, likely just another `chain` code each. Worth a follow-up audit
-   specifically if/when ShopSmart's user base expands toward the Midwest/West markets those
+   specifically if/when CartIQ's user base expands toward the Midwest/West markets those
    banners serve.
 
 5. **Albertsons-family locations (Safeway / Vons / Jewel-Osco / Tom Thumb / Randalls)** —
@@ -661,7 +661,7 @@ cost — a cheap integration that only adds locations without prices repeats Alb
    the app's current trust story without adding shopping value.
 
 6. **Everything in "Not Recommended"** — do not revisit unless the underlying blocker changes
-   (e.g., a retailer launches an official developer API, or ShopSmart pursues a licensed
+   (e.g., a retailer launches an official developer API, or CartIQ pursues a licensed
    commercial data partnership, which is a business decision outside this audit's scope).
 
 **Why this order:** geographic coverage and pricing-comparison value are weighted far above raw
@@ -799,7 +799,7 @@ actually starts costing real maintenance time.
 Harris Teeter is done — verified compatible and shipped this phase (see Section 1). The
 next-best candidate is investigating Kroger Co.'s *other* banners (Ralphs, Fred Meyer, King
 Soopers, Smith's, QFC, ...) the same way: the `KrogerBanner` pattern this phase introduced makes
-each one a small config addition, not new engineering, *if* ShopSmart's user base expands toward
+each one a small config addition, not new engineering, *if* CartIQ's user base expands toward
 the regions those banners serve. Everything else researched this phase (Meijer, H-E-B, Hy-Vee,
 Food Lion/Giant/Stop & Shop) came back negative — see below.
 
@@ -866,7 +866,7 @@ copies; and moving disk-persisted browser sessions (Trader Joe's, Sprouts) to sh
 before any multi-instance deployment.
 
 **4. Immediate implementation opportunities discovered:** Harris Teeter, via the Kroger API
-ShopSmart already has fully working credentials and code for — the highest-value,
+CartIQ already has fully working credentials and code for — the highest-value,
 lowest-effort opportunity found in this audit, pending a single live verification check.
 
 ---
@@ -881,7 +881,7 @@ phase, out of the 19 Phase 1 candidates.
 **2. Classifications changed:** Harris Teeter: candidate → **Ready** (implemented). Meijer, H-E-B,
 Hy-Vee: **Experimental** → **Not Recommended** (live-confirmed Akamai/Incapsula/Cloudflare
 edge-level bot defense on each, respectively — a fundamentally different, more hostile posture
-than any of ShopSmart's three working undocumented-API integrations — Aldi, Sprouts, Trader
+than any of CartIQ's three working undocumented-API integrations — Aldi, Sprouts, Trader
 Joe's). Food Lion, Giant, Stop &
 Shop: **Experimental** → **Not Recommended** (confirmed shared platform via identical
 `robots.txt`, but that same file explicitly disallows AI crawlers — including this one — from the
@@ -896,7 +896,7 @@ mislabeling Harris Teeter stores as "Kroger" in Harris Teeter markets before thi
 **4. Immediate implementation opportunities discovered:** none remaining from this phase's
 research — Meijer/H-E-B/Hy-Vee/Ahold Delhaize all resolved to Not Recommended. The next
 candidate worth a live check is Kroger Co.'s other banners (Ralphs, Fred Meyer, King Soopers,
-...) using the same verification method this phase proved out, gated on ShopSmart's geographic
+...) using the same verification method this phase proved out, gated on CartIQ's geographic
 expansion plans rather than pursued speculatively.
 
 ---
@@ -909,7 +909,7 @@ axes the brief asked this roadmap to weigh explicitly.
 | Rank | Retailer | Engineering effort | Long-term maintainability | User impact | Verdict |
 |---|---|---|---|---|---|
 | 1 | **Harris Teeter** | Done — ~1 day, entirely config + reuse | Excellent (identical to Kroger's own) | Real new East Coast coverage with genuine live pricing | **Shipped this phase** |
-| 2 | Kroger's other banners (Ralphs, Fred Meyer, King Soopers, Smith's, QFC, ...) | Low *per banner* — same `KrogerBanner` config pattern, pending live confirmation of each `chain` code | Excellent (same official API) | High *if* ShopSmart expands toward Midwest/West markets; zero impact otherwise | **Worth a follow-up audit when geography warrants it** |
+| 2 | Kroger's other banners (Ralphs, Fred Meyer, King Soopers, Smith's, QFC, ...) | Low *per banner* — same `KrogerBanner` config pattern, pending live confirmation of each `chain` code | Excellent (same official API) | High *if* CartIQ expands toward Midwest/West markets; zero impact otherwise | **Worth a follow-up audit when geography warrants it** |
 | 3 | Safeway/Vons/Jewel-Osco/Tom Thumb/Randalls — locations only | Low (direct reuse of `albertsonsLocator.ts`'s pattern) | Good (same Yext-sitemap shape already proven for Albertsons/Trader Joe's) | **Low** — a locations-only store repeats Albertsons' "unavailable" experience without adding shopping value | **Deliberately deprioritized despite low cost** |
 | 4 | Meijer | N/A — blocked | N/A | N/A | **Not Recommended** (Akamai hard block, verified live) |
 | 5 | H-E-B | N/A — blocked | N/A | N/A | **Not Recommended** (Imperva Incapsula challenge, verified live; also regionally narrow) |

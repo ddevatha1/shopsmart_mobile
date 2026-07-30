@@ -2,7 +2,7 @@
  * Shared types for the generic browser-extraction framework (see
  * BrowserAdapter.ts for the pipeline overview). Deliberately separate from
  * `types/index.ts`'s `ApiProduct` — this framework is meant to work against
- * *any* grocery site, including ones ShopSmart hasn't decided to support in
+ * *any* grocery site, including ones CartIQ hasn't decided to support in
  * production yet, so its output type (`BrowserProduct`) uses a plain
  * `store: string` rather than the closed `ApiProduct['store']` union.
  * Promoting a browser-discovered store into production (the way Harris

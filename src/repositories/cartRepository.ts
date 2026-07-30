@@ -8,7 +8,7 @@ import type { CartItem } from '../models/types';
  * inherit that account's leftover cart on first hydrate.
  */
 function cartKey(ownerEmail: string): string {
-  return `shopsmart_cart_${ownerEmail}`;
+  return `CartIQ_cart_${ownerEmail}`;
 }
 
 export const cartRepository = {

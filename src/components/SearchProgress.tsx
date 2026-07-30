@@ -108,7 +108,13 @@ function PulsingIconBadge() {
   );
 }
 
-function DotRow() {
+/** Exported (Phase 6.1 Part 3) so a smaller, inline "still working"
+ * indicator elsewhere (see AssistantScreen.tsx's loading row) can reuse
+ * the exact same staggered-dot animation instead of a plain static
+ * spinner — visual consistency across this app's "working" states,
+ * without pulling in SearchProgress's much larger centered layout where
+ * an inline chat-thread indicator needs to stay small. */
+export function DotRow() {
   return (
     <View style={styles.dotRow}>
       <Dot delay={0} />
@@ -150,6 +156,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   message: { color: colors.charcoal, textAlign: 'center', paddingHorizontal: spacing.xl },
-  dotRow: { flexDirection: 'row', gap: 8, marginTop: spacing.xs },
+  dotRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.green },
 });

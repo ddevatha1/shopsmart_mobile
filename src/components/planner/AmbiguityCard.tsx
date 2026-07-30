@@ -16,7 +16,7 @@ interface Props {
 }
 
 /** One compact clarification card — a label plus a single row of chips
- * (every subtype option + "No Preference"). Mirrors shopsmart_web's
+ * (every subtype option + "No Preference"). Mirrors CartIQ_web's
  * AmbiguityCard.tsx, reusing ChipRow's existing multi-select-shaped API in
  * single-select mode (picking one clears the others is this component's
  * onToggle logic, the same pattern Sort By already uses elsewhere). */

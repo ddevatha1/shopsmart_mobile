@@ -3,7 +3,7 @@
  * services/searchService.ts, which holds the actual pipeline). Split out so
  * other server-side code (the Smart Shopping Planner's optimizer) can call
  * performSearch directly instead of issuing an HTTP request back to this
- * same server. Mirrors shopsmart_web's app/api/search/route.ts.
+ * same server. Mirrors CartIQ_web's app/api/search/route.ts.
  */
 import type { Request, Response } from 'express';
 import { performSearch } from '../services/searchService.ts';

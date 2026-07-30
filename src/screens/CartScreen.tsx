@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenContainer } from '../components/ScreenContainer';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,19 +19,22 @@ import { useUserStore } from '../store/userStore';
 import { groupCartByStore, locationKey } from '../utils/groupCartByStore';
 import { planShoppingTrip } from '../services/tripService';
 import { categorizeProduct, GROCERY_CATEGORIES, type GroceryCategory } from '../services/groceryCategoryService';
-import { getCartInsight, type AdvisorInsight } from '../services/advisorService';
+import { dismissalKey, getCartInsight, type AdvisorInsight } from '../services/advisorService';
+import { dismissInsight } from '../services/dismissalStore';
 import { getCartSuggestions } from '../services/cartSuggestionService';
 import { ProductImage } from '../components/ProductImage';
+import { StoreLogo } from '../components/StoreLogo';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
 import { AutoOptimizeSheet } from '../components/cart/AutoOptimizeSheet';
 import { ContextualHint } from '../components/onboarding/ContextualHint';
-import { colors, storeAccents } from '../theme/colors';
+import { colors } from '../theme/colors';
+import { typography } from '../theme/typography';
 import { duration, easing } from '../theme/motion';
-import { spacing, radius } from '../theme/metrics';
+import { spacing, radius, surfaces } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
 
-/** Mirrors shopsmart_web/src/components/CartDrawer.tsx. The web slide-over
+/** Mirrors CartIQ_web/src/components/CartDrawer.tsx. The web slide-over
  * drawer becomes a persistent bottom-nav tab on mobile (per instructions:
  * "Desktop sidebar → Bottom navigation") since the cart is a primary
  * destination a shopper returns to repeatedly, not a transient overlay. */
@@ -43,6 +46,21 @@ export function CartScreen() {
   const remove = useCartStore((s) => s.remove);
   const addToCart = useCartStore((s) => s.addToCart);
   const activeZip = useSearchStore((s) => s.activeZip);
+  // The safest available substitution candidate pool from here: the cart's
+  // own products plus whatever the last search fetched. Neither is a
+  // fresh, guaranteed-relevant lookup for the specific product being
+  // viewed (findSubstitution's own name-based filtering handles that,
+  // same as SearchScreen/CompareScreen already do) — this just replaces
+  // the previous hardcoded `[]`, which made substitution unconditionally
+  // dead on this path.
+  //
+  // This pool now also feeds getCartInsight's own 'substitution' candidate
+  // (advisorService.ts's `findUnavailableSubstitutionCandidate`) below, so
+  // the `onSeeProduct`/`onAddToCart` path AdvisorCard renders is reachable
+  // for real: when the shopper's last search happens to show a cart item
+  // now reporting `inStock: false`, and a genuine alternative exists in
+  // that same search, the Advisor surfaces it.
+  const searchProducts = useSearchStore((s) => s.products);
   const user = useUserStore((s) => s.user);
 
   const zipcode = activeZip || user?.zipcode || '';
@@ -114,21 +132,36 @@ export function CartScreen() {
   const [advisorInsight, setAdvisorInsight] = useState<AdvisorInsight | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getCartInsight({ groups, trip: tripPreview, cartTotal: total, weeklyBudget: user?.weeklyBudget }).then((insight) => {
+    getCartInsight({
+      groups, trip: tripPreview, cartTotal: total, weeklyBudget: user?.weeklyBudget, ownerEmail: user?.email, searchProducts,
+    }).then((insight) => {
       if (!cancelled) setAdvisorInsight(insight);
     });
     return () => {
       cancelled = true;
     };
-  }, [groups, tripPreview, total, user?.weeklyBudget]);
+  }, [groups, tripPreview, total, user?.weeklyBudget, user?.email, searchProducts]);
+
+  // Clears the card immediately and records the dismissal so it doesn't
+  // reappear on the next effect run — same pattern as SearchScreen's
+  // handleDismissAdvisor.
+  const handleDismissAdvisor = () => {
+    if (!advisorInsight) return;
+    dismissInsight(user?.email ?? '', dismissalKey(advisorInsight));
+    setAdvisorInsight(null);
+  };
 
   const cartSuggestions = useMemo(() => getCartSuggestions(items), [items]);
+  const substitutionCandidates = useMemo(
+    () => [...items.map((i) => i.product), ...searchProducts],
+    [items, searchProducts],
+  );
 
   const [optimizeSheetVisible, setOptimizeSheetVisible] = useState(false);
   const canOptimize = groups.length >= 1;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.white }} edges={['top']}>
+    <ScreenContainer variant="tab">
       <View style={styles.header}>
         <Ionicons name="cart-outline" size={20} color={colors.green} />
         <Text style={styles.headerTitle}>Your Cart</Text>
@@ -157,13 +190,14 @@ export function CartScreen() {
                   {advisorInsight && (
                     <AdvisorCard
                       insight={advisorInsight}
-                      onSeeProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: [] })}
+                      onSeeProduct={(product) => navigation.navigate('ProductDetail', { product, allProducts: substitutionCandidates })}
                       onAddToCart={(product) => addToCart(product)}
                       primaryAction={
                         (advisorInsight.kind === 'skip-the-stop' || advisorInsight.kind === 'worth-the-stop') && canOptimize
                           ? { label: 'Auto-Optimize my cart', onPress: () => setOptimizeSheetVisible(true) }
                           : undefined
                       }
+                      onDismiss={handleDismissAdvisor}
                     />
                   )}
                   {cartSuggestions.length > 0 && (
@@ -200,8 +234,9 @@ export function CartScreen() {
         groups={groups}
         zipcode={zipcode}
         currentTripMinutes={tripPreview?.totalDurationMinutes ?? null}
+        budgetTarget={user?.weeklyBudget}
       />
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 
@@ -231,7 +266,6 @@ function CartRow({ item, onUpdateQty, onRemove }: {
   onUpdateQty: (id: string, qty: number) => void;
   onRemove: (id: string) => void;
 }) {
-  const accent = storeAccents[item.product.store];
   return (
     <Animated.View
       style={styles.row}
@@ -244,9 +278,7 @@ function CartRow({ item, onUpdateQty, onRemove }: {
       </View>
       <View style={styles.rowBody}>
         <Text numberOfLines={2} style={styles.itemName}>{item.product.name}</Text>
-        <View style={[styles.storeChip, { backgroundColor: accent.background }]}>
-          <Text style={{ color: accent.text, fontSize: 10, fontWeight: '600' }}>{item.product.store}</Text>
-        </View>
+        <StoreLogo store={item.product.store} height={18} width={42} style={styles.storeChip} />
         <View style={styles.stepperRow}>
           <AnimatedPressable
             style={styles.stepperButton}
@@ -332,13 +364,13 @@ function CartFooter({ total, uniqueStoreCount, zipcode, byStore, onStartRoute, o
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  headerTitle: { fontWeight: '700', fontSize: 18, color: colors.charcoal },
+  headerTitle: { ...typography.h2 },
   headerBadge: { backgroundColor: colors.green, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   headerBadgeText: { color: colors.white, fontSize: 11, fontWeight: '700' },
   hintSlot: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: spacing.sm },
   emptyCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.mint, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
-  emptyTitle: { fontWeight: '600', fontSize: 15, color: colors.charcoal },
+  emptyTitle: { ...typography.h3 },
   emptyText: { color: `${colors.charcoal}73`, fontSize: 13, textAlign: 'center' },
   advisorSlot: { gap: spacing.sm, marginBottom: spacing.md },
   suggestionText: { color: `${colors.charcoal}80`, fontSize: 12, fontStyle: 'italic', paddingHorizontal: spacing.xs },
@@ -346,18 +378,18 @@ const styles = StyleSheet.create({
     color: `${colors.charcoal}80`, fontWeight: '700', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase',
     marginBottom: spacing.sm, marginTop: spacing.xs,
   },
-  row: { flexDirection: 'row', backgroundColor: colors.panelBg, borderRadius: radius.lg, padding: spacing.md },
+  row: { ...surfaces.flat, flexDirection: 'row', padding: spacing.md },
   thumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray, overflow: 'hidden' },
   rowBody: { flex: 1, marginLeft: spacing.md, gap: 2 },
   rowActions: { alignItems: 'flex-end', gap: spacing.md, marginLeft: spacing.sm },
   itemName: { fontSize: 12.5, fontWeight: '600', color: colors.charcoal },
-  storeChip: { alignSelf: 'flex-start', paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, marginTop: spacing.xs },
+  storeChip: { alignSelf: 'flex-start', marginTop: spacing.xs },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
   stepperButton: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
   qtyText: { width: 22, textAlign: 'center', fontWeight: '600', fontSize: 13 },
   itemPrice: { fontWeight: '700', fontSize: 13, color: colors.charcoal },
   footer: { borderTopWidth: 1, borderTopColor: colors.borderGray, padding: spacing.lg, gap: spacing.md },
-  tripBox: { backgroundColor: colors.mint, borderRadius: radius.lg, padding: spacing.lg },
+  tripBox: { ...surfaces.tinted, padding: spacing.lg },
   tripHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   tripHeaderText: { color: colors.green, fontWeight: '600', fontSize: 12.5 },
   tripRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },

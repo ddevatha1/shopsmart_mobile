@@ -12,7 +12,7 @@ import type { ApiProduct, StoreName } from '../models/types';
  * `MIN_OBSERVATIONS_FOR_STATS`) — that silence *is* the progressive
  * disclosure the feature is supposed to have, not a bug to work around.
  */
-const STORAGE_KEY = 'shopsmart_price_history';
+const STORAGE_KEY = 'CartIQ_price_history';
 const MAX_OBSERVATIONS_PER_PRODUCT = 30;
 const MAX_OBSERVATION_AGE_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
 const MIN_OBSERVATIONS_FOR_STATS = 2;
@@ -101,12 +101,7 @@ export interface PriceStats {
   observationCount: number;
 }
 
-/** Real stats from this device's own observation log for `product` at its
- * own store — null when there isn't enough real history yet to say
- * anything meaningful (fewer than two observations), which is the normal,
- * expected state for a product just seen for the first time. */
-export async function getStats(product: Pick<ApiProduct, 'name' | 'store' | 'price'>): Promise<PriceStats | null> {
-  const log = await loadLog();
+function computeStats(log: HistoryLog, product: Pick<ApiProduct, 'name' | 'store' | 'price'>): PriceStats | null {
   const key = normalizeProductName(product.name);
   const observations = (log[key]?.[product.store] ?? []).slice().sort((a, b) => a.timestamp - b.timestamp);
   if (observations.length < MIN_OBSERVATIONS_FOR_STATS) return null;
@@ -128,6 +123,33 @@ export async function getStats(product: Pick<ApiProduct, 'name' | 'store' | 'pri
     sparkline: prices.slice(-10),
     observationCount: observations.length,
   };
+}
+
+/** Real stats from this device's own observation log for `product` at its
+ * own store — null when there isn't enough real history yet to say
+ * anything meaningful (fewer than two observations), which is the normal,
+ * expected state for a product just seen for the first time. */
+export async function getStats(product: Pick<ApiProduct, 'name' | 'store' | 'price'>): Promise<PriceStats | null> {
+  const log = await loadLog();
+  return computeStats(log, product);
+}
+
+/** The same real stats as `getStats`, for many products from a single log
+ * read — the efficient path for a results grid (e.g. ProductCard's
+ * `priceTrend` prop) instead of one AsyncStorage read per card. Keyed by
+ * `productId` since two different products can share a normalized name +
+ * store (e.g. two sizes of the same milk). Products with no meaningful
+ * history are simply absent from the returned map, never a null entry. */
+export async function getStatsForMany(
+  products: (Pick<ApiProduct, 'name' | 'store' | 'price'> & { id: string })[],
+): Promise<Map<string, PriceStats>> {
+  const log = await loadLog();
+  const result = new Map<string, PriceStats>();
+  for (const product of products) {
+    const stats = computeStats(log, product);
+    if (stats) result.set(product.id, stats);
+  }
+  return result;
 }
 
 /** All stores this device has observed prices for the same normalized

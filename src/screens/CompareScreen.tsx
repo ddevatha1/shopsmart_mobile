@@ -1,12 +1,9 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { colors } from '../theme/colors';
-import { typography } from '../theme/typography';
 import { spacing } from '../theme/metrics';
-import { AnimatedPressable } from '../components/AnimatedPressable';
+import { ScreenContainer } from '../components/ScreenContainer';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { ContextualHint } from '../components/onboarding/ContextualHint';
 import { ComparisonView } from '../components/comparison/ComparisonView';
 import { useCartStore } from '../store/cartStore';
@@ -36,28 +33,26 @@ export function CompareScreen({ route, navigation }: Props) {
   // The "Still can't find it?" card's search field — continues the
   // workflow with a more specific query rather than sending the shopper
   // back to Search by hand. Fires the same global search() action Stage 1
-  // uses (ZIP, cart, and every other app-level store are untouched by it)
-  // and pops back to the Search tab, where the results are already
-  // updated by the time it's visible again.
+  // uses (ZIP, cart, and every other app-level store are untouched by it),
+  // then returns to the existing `SearchResults` screen already in this
+  // stack (Navigation Redesign — Compare is only ever reached FROM
+  // SearchResults, so it's always there to pop back to), where the
+  // results are already updated by the time it's visible again.
+  //
+  // Deliberately `navigate`, not `popToTop`: `popToTop` would pop all the
+  // way to the Home Hub tab at the bottom of this stack, past
+  // SearchResults entirely — a real regression the Navigation Redesign's
+  // Hub/Search/Results split introduced here (Home is no longer the
+  // screen showing results, so "the top of the stack" and "the screen
+  // with the results" stopped being the same screen).
   const runSearchMore = (term: string) => {
     useSearchStore.getState().search(term);
-    navigation.popToTop();
+    navigation.navigate('SearchResults');
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <AnimatedPressable
-          onPress={() => navigation.goBack()}
-          style={styles.closeButton}
-          scaleTo={0.9}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="arrow-back" size={20} color={colors.charcoal} />
-        </AnimatedPressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
-        <View style={{ width: 32 }} />
-      </View>
+    <ScreenContainer>
+      <ScreenHeader title={group.name} onBack={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.hintSlot}>
@@ -73,28 +68,11 @@ export function CompareScreen({ route, navigation }: Props) {
           onSearchMore={runSearchMore}
         />
       </ScrollView>
-    </SafeAreaView>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.white },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.panelBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: { ...typography.h2, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
   scrollContent: { paddingBottom: spacing.xxl },
   hintSlot: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
 });

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCartStore } from '../store/cartStore';
 import { colors, storeAccents } from '../theme/colors';
 import { ProductImage } from '../components/ProductImage';
+import { StoreLogo } from '../components/StoreLogo';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { RecommendationActions } from '../components/RecommendationActions';
 import { AccordionSection } from '../components/filters/AccordionSection';
@@ -16,20 +18,33 @@ import { haversineDistanceMiles, formatMiles } from '../utils/geo';
 import { getStats, type PriceStats } from '../services/priceHistoryService';
 import { findSubstitution, type Substitution } from '../services/substitutionService';
 import { getPersonalizationProfile, type PersonalizationProfile } from '../services/personalizationService';
+import { getPreferences } from '../services/shopperPreferenceService';
+import { getAllRecords, getMostRecentPurchase } from '../services/purchaseHistoryService';
+import { explainProductSelection, flattenExplanationReasons, type RecommendationExplanation } from '../services/recommendationExplanationService';
 import { useUserStore } from '../store/userStore';
-import { spacing, radius } from '../theme/metrics';
+import { spacing, radius, elevation, surfaces } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
 import type { ApiProduct } from '../models/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
-/** Mirrors shopsmart_web/src/components/ProductModal.tsx. The web modal
+/** Mirrors CartIQ_web/src/components/ProductModal.tsx. The web modal
  * (dialog overlay) becomes a full-screen pushed page on mobile per the
  * instructions ("Desktop modal → Bottom sheet or full-screen page") — a
  * full page was chosen over a bottom sheet because this content is dense
  * (related products carousel, expandable sections, quantity stepper) and
  * benefits from a proper back-button/gesture rather than a partial sheet. */
 export function ProductDetailScreen({ route, navigation }: Props) {
+  // Global Layout Fix (Issue 5) — this screen had NO safe-area handling
+  // at all: the close button floated at a hardcoded `top: 46` over the
+  // full-bleed hero image, which is wrong on any device whose real
+  // status-bar/notch inset differs. The hero image itself deliberately
+  // stays full-bleed (that's the intended "immersive product photo"
+  // design, matching ProductQualityScreen's own full-bleed camera view)
+  // — so instead of a `ScreenContainer` (which would add a plain
+  // background strip above the image), the real `insets.top` is added
+  // to the close button/store badge's own absolute `top` offset.
+  const insets = useSafeAreaInsets();
   const { product, allProducts } = route.params;
   const [qty, setQty] = useState(1);
   const [addedFeedback, setAddedFeedback] = useState(false);
@@ -96,6 +111,36 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   // exists — never shown when this product is already the good choice.
   const substitution = useMemo(() => findSubstitution(product, allProducts, profile), [product, allProducts, profile]);
 
+  // "Why CartIQ chose this" (Phase 5.5 Part 4) — real, already-stored
+  // preferences (shopperPreferenceService) and this shopper's own real
+  // purchase history (purchaseHistoryService), fed into
+  // recommendationExplanationService.ts's `explainProductSelection` — the
+  // exact same evidence-gated engine WhyThisPlanCard already uses at plan
+  // grain, applied here at single-product grain. `undefined` (never an
+  // empty placeholder) whenever nothing real supports a reason.
+  const [selectionExplanation, setSelectionExplanation] = useState<RecommendationExplanation | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    if (!ownerEmail) {
+      setSelectionExplanation(undefined);
+      return;
+    }
+    Promise.all([getPreferences(ownerEmail), getAllRecords(ownerEmail)]).then(([preferences, records]) => {
+      if (cancelled) return;
+      const previousPurchase = getMostRecentPurchase(product, records);
+      const explanation = explainProductSelection(product, {
+        preferredStores: preferences.preferredStores,
+        dietaryPreferences: preferences.dietaryPreferences,
+        previousPurchase: previousPurchase ? { price: previousPurchase.price } : undefined,
+        comparableProducts: allProducts,
+      });
+      setSelectionExplanation(Object.keys(explanation).length > 0 ? explanation : undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [product, allProducts, ownerEmail]);
+
   const entrance = useSharedValue(0);
   useEffect(() => {
     entrance.value = withTiming(1, { duration: duration.slow, easing: easing.standard });
@@ -113,15 +158,13 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.white }} contentContainerStyle={{ paddingBottom: 32 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: colors.white }} contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}>
       <View style={styles.imageWrap}>
         <ProductImage product={product} iconSize={72} />
-        <View style={[styles.storeBadge, { backgroundColor: accent.background }]}>
-          <Text style={{ color: accent.text, fontSize: 12, fontWeight: '600' }}>{product.store}</Text>
-        </View>
+        <StoreLogo store={product.store} height={24} width={48} style={[styles.storeBadge, { top: insets.top + 12 }]} />
         <AnimatedPressable
           onPress={() => navigation.goBack()}
-          style={styles.closeButton}
+          style={[styles.closeButton, { top: insets.top + 8 }]}
           scaleTo={0.9}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityLabel="Close"
@@ -207,6 +250,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           </AnimatedPressable>
         </View>
 
+        {selectionExplanation && <WhyChosenBlock explanation={selectionExplanation} />}
+
         {priceStats && <PriceHistoryBlock stats={priceStats} />}
 
         {substitution && (
@@ -260,9 +305,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         </View>
 
         {related.length > 0 && (
-          <View style={{ marginTop: 20 }}>
+          <View style={{ marginTop: spacing.xl }}>
             <Text style={styles.relatedTitle}>Picked For You</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, marginTop: 12 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, marginTop: spacing.md }}>
               {related.map((p) => (
                 <RelatedCard key={p.id} product={p} onAddToCart={() => addToCart(p)} onPress={() => navigation.push('ProductDetail', { product: p, allProducts: [] })} />
               ))}
@@ -332,6 +377,31 @@ function PriceHistoryBlock({ stats }: { stats: PriceStats }) {
         <PriceStat label="Average" value={stats.average} />
         <PriceStat label="Lowest" value={stats.lowest} />
       </View>
+    </View>
+  );
+}
+
+/** "Why CartIQ chose this" (Phase 5.5 Part 4) — a flat, evidence-
+ * backed checklist, same rendering discipline as
+ * components/assistant/WhyThisPlanCard.tsx: every line is one real
+ * `ExplanationReason`, never free-form text. Only ever rendered when
+ * `explanation` has at least one populated bucket (see this screen's own
+ * `selectionExplanation` state). */
+function WhyChosenBlock({ explanation }: { explanation: RecommendationExplanation }) {
+  const reasons = flattenExplanationReasons(explanation);
+  if (reasons.length === 0) return null;
+  return (
+    <View style={styles.whyChosenBox}>
+      <View style={styles.priceHistoryHeader}>
+        <Ionicons name="sparkles-outline" size={14} color={colors.green} />
+        <Text style={styles.whyChosenTitle}>Why CartIQ chose this</Text>
+      </View>
+      {reasons.map((reason, i) => (
+        <View key={i} style={styles.whyChosenRow}>
+          <Ionicons name="checkmark-circle" size={13} color={colors.green} style={{ marginTop: 1 }} />
+          <Text style={styles.whyChosenText}>{reason.message}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -426,9 +496,12 @@ function calcPerUnit(price: number, size: string): string | null {
 
 const styles = StyleSheet.create({
   imageWrap: { aspectRatio: 1.1, backgroundColor: colors.imageBackground, position: 'relative' },
-  storeBadge: { position: 'absolute', top: 50, left: 16, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  // `top` is set dynamically at each call site (insets.top + a small
+  // gap) — see this screen's own comment on why these stay absolutely
+  // positioned over a full-bleed image instead of using ScreenContainer.
+  storeBadge: { position: 'absolute', left: 16, ...elevation.low },
   closeButton: {
-    position: 'absolute', top: 46, right: 16, width: 32, height: 32, borderRadius: 16,
+    position: 'absolute', right: 16, width: 32, height: 32, borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.08)', alignItems: 'center', justifyContent: 'center',
   },
   organicBadge: {
@@ -443,7 +516,10 @@ const styles = StyleSheet.create({
   certRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   certChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.mint, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radius.pill, gap: spacing.xs },
   certText: { color: colors.green, fontSize: 12, fontWeight: '600' },
-  priceBox: { backgroundColor: colors.panelBg, borderWidth: 1, borderColor: colors.borderGray, borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xl },
+  // Phase 7.1 — border removed: a tinted fill already signals "this is
+  // a grouped section" on its own; adding a border on top of a tint is
+  // redundant emphasis, the same fix applied throughout this pass.
+  priceBox: { ...surfaces.flat, padding: spacing.lg, marginTop: spacing.xl },
   priceRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm + 2 },
   priceTag: { backgroundColor: colors.priceBadge, paddingHorizontal: spacing.md + 2, paddingVertical: spacing.sm, borderRadius: radius.md },
   priceText: { color: colors.white, fontWeight: '800', fontSize: 22 },
@@ -457,10 +533,14 @@ const styles = StyleSheet.create({
   qtyValue: { width: 24, textAlign: 'center', fontWeight: '600', fontSize: 13 },
   addToCartButton: { backgroundColor: colors.green, borderRadius: radius.md, paddingVertical: spacing.md + 2, minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md + 2 },
   addToCartText: { color: colors.white, fontWeight: '600', fontSize: 14 },
-  priceHistoryBox: {
-    backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderGray,
-    borderRadius: radius.lg, padding: spacing.md + 2, marginTop: spacing.md,
-  },
+  priceHistoryBox: { ...surfaces.bordered, padding: spacing.md + 2, marginTop: spacing.md },
+  // Phase 7.1 — border removed to match WhyThisPlanCard's identical fix:
+  // a mint fill + a green border on top of it was double emphasis for
+  // the same "explained" signal.
+  whyChosenBox: { ...surfaces.tinted, padding: spacing.md + 2, marginTop: spacing.md, gap: spacing.xs },
+  whyChosenTitle: { fontWeight: '800', fontSize: 13, color: colors.green, flex: 1 },
+  whyChosenRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs, marginTop: 2 },
+  whyChosenText: { color: `${colors.charcoal}cc`, fontSize: 12.5, lineHeight: 17, flex: 1 },
   priceHistoryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2 },
   priceHistoryTitle: { fontWeight: '700', fontSize: 12.5, color: colors.charcoal, flex: 1 },
   trendChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },

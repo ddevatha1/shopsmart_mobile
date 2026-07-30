@@ -87,3 +87,45 @@ describe('cartStore — Auto-Optimize apply/undo', () => {
     expect(useCartStore.getState().lastOptimizationSnapshot).toBeNull();
   });
 });
+
+describe('cartStore — quantity-aware remove (Assistant "remove N of X" support)', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    useUserStore.setState({ user: TEST_USER });
+    useCartStore.setState({ items: [], hydrated: true, lastOptimizationSnapshot: null });
+  });
+
+  test('remove(id) with no quantity removes the whole line, same as before this existed', async () => {
+    useCartStore.setState({ items: [{ product: makeProduct('a'), quantity: 3 }] });
+
+    await useCartStore.getState().remove('a');
+
+    expect(useCartStore.getState().items).toEqual([]);
+  });
+
+  test('remove(id, 1) on a quantity-3 line decrements to 2, does not remove the line', async () => {
+    useCartStore.setState({ items: [{ product: makeProduct('a'), quantity: 3 }] });
+
+    await useCartStore.getState().remove('a', 1);
+
+    expect(useCartStore.getState().items).toEqual([{ product: makeProduct('a'), quantity: 2 }]);
+  });
+
+  test('remove(id, quantity) where quantity >= the real amount removes the whole line', async () => {
+    useCartStore.setState({ items: [{ product: makeProduct('a'), quantity: 2 }] });
+
+    await useCartStore.getState().remove('a', 5);
+
+    expect(useCartStore.getState().items).toEqual([]);
+  });
+
+  test('a partial removal persists (survives a fresh hydrate)', async () => {
+    useCartStore.setState({ items: [{ product: makeProduct('a'), quantity: 3 }] });
+    await useCartStore.getState().remove('a', 1);
+
+    useCartStore.setState({ items: [], hydrated: false });
+    await useCartStore.getState().hydrate();
+
+    expect(useCartStore.getState().items).toEqual([{ product: makeProduct('a'), quantity: 2 }]);
+  });
+});

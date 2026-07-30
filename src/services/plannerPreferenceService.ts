@@ -1,7 +1,7 @@
 import { plannerPreferenceRepository, type PlannerPreferences } from '../repositories/plannerPreferenceRepository';
 
 /** Thin wrapper around plannerPreferenceRepository — mirrors
- * shopsmart_web's plannerPreferenceService.ts. */
+ * CartIQ_web's plannerPreferenceService.ts. */
 export async function getAllPreferences(ownerEmail: string): Promise<PlannerPreferences> {
   return plannerPreferenceRepository.load(ownerEmail);
 }

@@ -19,7 +19,7 @@ import { withTimeout } from './withTimeout.ts';
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const geocodeCache = new TtlCache<{ latitude: number; longitude: number } | null>(CACHE_TTL_MS);
 
-const USER_AGENT = 'ShopSmartMobile/1.0 (grocery price comparison app)';
+const USER_AGENT = 'CartIQMobile/1.0 (grocery price comparison app)';
 const FETCH_TIMEOUT_MS = 5000;
 
 // ── Request queue ────────────────────────────────────────────────────────────

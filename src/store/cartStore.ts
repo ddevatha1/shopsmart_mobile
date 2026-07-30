@@ -23,7 +23,14 @@ interface CartState {
   hydrate: () => Promise<void>;
   addToCart: (product: ApiProduct, qty?: number) => Promise<void>;
   updateQty: (productId: string, qty: number) => Promise<void>;
-  remove: (productId: string) => Promise<void>;
+  /** `quantity` is how many units of this line to remove — omitted (or
+   * greater than or equal to the line's current quantity) removes the
+   * whole line, exactly as this always worked before the Assistant's
+   * "remove 2 of the 3 bananas" support needed a partial-removal path
+   * (see assistantDispatcher.ts's `dispatchRemoveFromCart`). Every
+   * existing caller that only ever removed a whole line (e.g.
+   * CartScreen's delete button) keeps working unchanged. */
+  remove: (productId: string, quantity?: number) => Promise<void>;
   /** Replaces the entire cart — used by the Smart Shopping Planner's
    * "Start Shopping" action to load a chosen plan's exact items, rather
    * than merging with whatever was in the cart before. */
@@ -78,9 +85,14 @@ export const useCartStore = create<CartState>((set, get) => ({
     await cartRepository.saveCart(owner, next);
   },
 
-  remove: async (productId) => {
+  remove: async (productId, quantity) => {
     const owner = currentCartOwner();
-    const next = get().items.filter((i) => i.product.id !== productId);
+    const items = get().items;
+    const current = items.find((i) => i.product.id === productId);
+    const next =
+      current && quantity != null && quantity > 0 && quantity < current.quantity
+        ? items.map((i) => (i.product.id === productId ? { ...i, quantity: i.quantity - quantity } : i))
+        : items.filter((i) => i.product.id !== productId);
     set({ items: next, lastOptimizationSnapshot: null });
     if (owner) await cartRepository.saveCart(owner, next);
   },

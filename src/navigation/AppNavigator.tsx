@@ -5,15 +5,21 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
+import { HomeScreen } from '../screens/HomeScreen';
 import { SearchScreen } from '../screens/SearchScreen';
+import { SearchResultsScreen } from '../screens/SearchResultsScreen';
 import { CartScreen } from '../screens/CartScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { CompareScreen } from '../screens/CompareScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { RouteScreen } from '../screens/RouteScreen';
 import { PlannerScreen } from '../screens/PlannerScreen';
+import { MealPlannerScreen } from '../screens/MealPlannerScreen';
+import { SavingsScreen } from '../screens/SavingsScreen';
+import { AssistantScreen } from '../screens/AssistantScreen';
 import { AuthScreen } from '../screens/AuthScreen';
 import { SplashScreen } from '../screens/SplashScreen';
+import { ProductQualityScreen } from '../screens/ProductQualityScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { cartItemCount, useCartStore } from '../store/cartStore';
 import { colors } from '../theme/colors';
@@ -29,9 +35,13 @@ const navTheme: Theme = {
   colors: { ...DefaultTheme.colors, primary: colors.green, background: colors.white },
 };
 
-/** Bottom tabs (Search/Cart/Profile) — mirrors the web's persistent header
+/** Bottom tabs (Home/Cart/Profile) — mirrors the web's persistent header
  * icons + slide-over drawers, converted to primary mobile navigation
- * destinations per the instructions ("Desktop sidebar → Bottom navigation"). */
+ * destinations per the instructions ("Desktop sidebar → Bottom navigation").
+ * `Home` (renamed from `Search` in the Navigation Redesign) is now the
+ * hub/command-center tab — search itself moved to its own root-stack
+ * screens (`Search`/`SearchResults`, registered below) so a search no
+ * longer replaces this tab's content in place. */
 function Tabs() {
   const count = useCartStore((s) => cartItemCount(s.items));
 
@@ -44,9 +54,9 @@ function Tabs() {
       }}
     >
       <Tab.Screen
-        name="Search"
-        component={SearchScreen}
-        options={{ tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} /> }}
+        name="Home"
+        component={HomeScreen}
+        options={{ tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} /> }}
       />
       <Tab.Screen
         name="Cart"
@@ -128,7 +138,13 @@ export function AppNavigator() {
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Route" component={RouteScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Planner" component={PlannerScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="MealPlanner" component={MealPlannerScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Savings" component={SavingsScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Assistant" component={AssistantScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="ProductQuality" component={ProductQualityScreen} options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="Search" component={SearchScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="SearchResults" component={SearchResultsScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

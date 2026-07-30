@@ -11,13 +11,14 @@
  *   3. Map results to ApiProduct[], keeping only actual grocery items
  */
 
-import { chromium, request } from 'playwright';
+import { request } from 'playwright';
 import type { APIRequestContext, Browser, BrowserContext } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ApiProduct, StoreLocation } from '../types/index.ts';
 import { hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
+import { launchChromium } from '../utils/launchChromium.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createTraderJoesLocator, warmDirectory as warmTraderJoesDirectory } from './locators/traderJoesLocator.ts';
@@ -206,17 +207,7 @@ async function establishSessionIfNeeded(): Promise<void> {
     console.log('[TraderJoes] No session — visiting storefront first');
     let browser: Browser | null = null;
     try {
-      browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-first-run',
-        ],
-      });
+      browser = await launchChromium();
 
       const context = await buildContext(browser);
       await stealthContext(context);

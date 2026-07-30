@@ -26,13 +26,13 @@
  * near.
  */
 
-import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ApiProduct } from '../types/index.ts';
 import { toTitleCase, hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
+import { launchChromium } from '../utils/launchChromium.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createSproutsLocator } from './locators/sproutsLocator.ts';
@@ -429,17 +429,7 @@ export async function fetchSproutsProductImage(
 ): Promise<string | null> {
   let browser: Browser | null = null;
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-      ],
-    });
+    browser = await launchChromium();
 
     const context = await buildContext(browser);
     const page = await context.newPage();

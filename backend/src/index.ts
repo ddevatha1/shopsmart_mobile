@@ -67,8 +67,9 @@ const jsonErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
 app.use(jsonErrorHandler);
 
 const PORT = Number(process.env.PORT) || 3001;
-app.listen(PORT, () => {
-  console.log(`CartIQ_mobile backend listening on http://localhost:${PORT}`);
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`CartIQ_mobile backend listening on http://${HOST}:${PORT}`);
   perfLog('server:listening');
 
   // Fire-and-forget: pre-warm everything that doesn't depend on a shopper's

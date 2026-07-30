@@ -225,7 +225,10 @@ export async function handleProductImage(req: Request, res: Response): Promise<v
   const storeScraper = store ? STORE_IMAGE_SCRAPERS[store] : undefined;
   if (storeScraper && storeProductUrl) {
     try {
-      const scraped = await storeScraper(storeProductUrl, name);
+      // Browser-backed (Playwright) — bounded so a stuck/slow launch or
+      // page load degrades to the Open Food Facts fallback below instead
+      // of hanging this request indefinitely.
+      const scraped = await withTimeout(storeScraper(storeProductUrl, name), 30_000, `${store} product-image scrape`);
       if (scraped) {
         // The store-page scrape only ever returns an image — no
         // nutrition data source on this path (see ProductImageResult).

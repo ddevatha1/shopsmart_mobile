@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: cartiq-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npx playwright install --with-deps chromium
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.19.0
+      # Forces Playwright's Chromium download into node_modules/.cache
+      # (relative to rootDir) instead of a $HOME-based cache dir — removes
+      # any ambiguity about whether the build and start phases share the
+      # same cache location, which matters because Trader Joe's session
+      # establishment and the Sprouts product-image fallback both launch
+      # this browser at runtime (see src/utils/launchChromium.ts).
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"
+      - key: KROGER_CLIENT_ID
+        sync: false
+      - key: KROGER_CLIENT_SECRET
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_API_URL
+        value: https://api.openai.com/v1/chat/completions
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: LLM_RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: VISION_RATE_LIMIT_PER_MINUTE
+        value: "10"

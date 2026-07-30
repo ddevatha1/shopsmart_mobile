@@ -1,16 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import type { ErrorRequestHandler } from 'express';
-import { handleSearch } from './routes/search.ts';
-import { handleProductImage } from './routes/productImage.ts';
-import { handleTrip } from './routes/trip.ts';
-import { handleWarmup } from './routes/warmup.ts';
-import { handlePlanner } from './routes/planner.ts';
-import { handleAssistantIntent } from './routes/assistant.ts';
-import { handleMealPlan } from './routes/mealPlan.ts';
-import { handleVisionQuality } from './routes/visionQuality.ts';
-import { runWarmup } from './services/warmupService.ts';
-import { perfLog } from './utils/perfLog.ts';
+import { handleSearch } from './src/routes/search.ts';
+import { handleProductImage } from './src/routes/productImage.ts';
+import { handleTrip } from './src/routes/trip.ts';
+import { handleWarmup } from './src/routes/warmup.ts';
+import { handlePlanner } from './src/routes/planner.ts';
+import { handleAssistantIntent } from './src/routes/assistant.ts';
+import { handleMealPlan } from './src/routes/mealPlan.ts';
+import { handleVisionQuality } from './src/routes/visionQuality.ts';
+import { runWarmup } from './src/services/warmupService.ts';
+import { perfLog } from './src/utils/perfLog.ts';
 
 const app = express();
 

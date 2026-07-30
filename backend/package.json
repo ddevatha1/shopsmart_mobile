@@ -8,8 +8,8 @@
     "node": ">=22.9.0"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --experimental-strip-types --watch src/index.ts",
-    "start": "node --env-file-if-exists=.env --experimental-strip-types src/index.ts",
+    "dev": "node --env-file-if-exists=.env --experimental-strip-types --watch index.ts",
+    "start": "node --env-file-if-exists=.env --experimental-strip-types index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/services/*.test.ts src/services/locators/*.test.ts src/services/browser/*.test.ts src/services/browser/stores/*.test.ts src/routes/*.test.ts"
   },

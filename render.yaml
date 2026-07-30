@@ -3,7 +3,15 @@ services:
     name: cartiq-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install && npx playwright install --with-deps chromium
+    # Chromium install runs via backend/package.json's own "postinstall"
+    # script, not appended here — that way it also runs on a service that
+    # was created manually before this file existed (Render only
+    # auto-applies render.yaml to Blueprint-created services; a pre-
+    # existing service keeps whatever Build Command was set by hand in its
+    # dashboard, which is exactly what caused the "Chromium executable
+    # does not exist" failure this fixes). `npm install` alone is enough
+    # either way.
+    buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: NODE_VERSION

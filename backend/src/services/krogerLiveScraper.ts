@@ -49,7 +49,9 @@ async function getToken(): Promise<string> {
     const clientSecret = process.env.KROGER_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
       throw new Error(
-        'Kroger auth failed: KROGER_CLIENT_ID / KROGER_CLIENT_SECRET are not set (check .env.local).',
+        'Kroger auth failed: KROGER_CLIENT_ID / KROGER_CLIENT_SECRET are not set. ' +
+        'Local dev: set them in backend/.env (see backend/.env.example). ' +
+        'Render: add them as environment variables on the service (see render.yaml).',
       );
     }
 

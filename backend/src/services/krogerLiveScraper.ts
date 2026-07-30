@@ -45,8 +45,14 @@ async function getToken(): Promise<string> {
   return dedupeInFlight('kroger-token', async () => {
     if (tokenCache && Date.now() < tokenCache.expiresAt) return tokenCache.token;
 
-    const clientId = process.env.KROGER_CLIENT_ID;
-    const clientSecret = process.env.KROGER_CLIENT_SECRET;
+    // .trim() defends against the single most common real-world cause of
+    // "credentials are set but auth still fails with 401": a stray
+    // leading/trailing newline or space left over from copy-pasting a
+    // secret into a hosting dashboard's env var field, which silently
+    // corrupts the Base64 Basic-Auth header below without ever showing up
+    // when a human eyeballs the value.
+    const clientId = process.env.KROGER_CLIENT_ID?.trim();
+    const clientSecret = process.env.KROGER_CLIENT_SECRET?.trim();
     if (!clientId || !clientSecret) {
       throw new Error(
         'Kroger auth failed: KROGER_CLIENT_ID / KROGER_CLIENT_SECRET are not set. ' +
@@ -69,7 +75,13 @@ async function getToken(): Promise<string> {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Kroger auth failed (${res.status}): ${text.slice(0, 200)}`);
+      const hint = res.status === 401
+        ? ' — credentials are present but Kroger rejected them. Re-check that KROGER_CLIENT_ID/' +
+          'KROGER_CLIENT_SECRET on this host exactly match a real Kroger Developer Portal app ' +
+          '(no truncation/extra characters from copy-pasting into a dashboard), and that the app ' +
+          'is approved for the product.compact scope.'
+        : '';
+      throw new Error(`Kroger auth failed (${res.status}): ${text.slice(0, 200)}${hint}`);
     }
 
     const json = await res.json();

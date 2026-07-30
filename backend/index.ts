@@ -10,6 +10,7 @@ import { handleAssistantIntent } from './src/routes/assistant.ts';
 import { handleMealPlan } from './src/routes/mealPlan.ts';
 import { handleVisionQuality } from './src/routes/visionQuality.ts';
 import { runWarmup } from './src/services/warmupService.ts';
+import { logStartupDiagnostics } from './src/services/startupDiagnostics.ts';
 import { perfLog } from './src/utils/perfLog.ts';
 
 const app = express();
@@ -71,6 +72,7 @@ const HOST = '0.0.0.0';
 app.listen(PORT, HOST, () => {
   console.log(`CartIQ_mobile backend listening on http://${HOST}:${PORT}`);
   perfLog('server:listening');
+  logStartupDiagnostics();
 
   // Fire-and-forget: pre-warm everything that doesn't depend on a shopper's
   // zip (Kroger token, Aldi/Sprouts sessions, Trader Joe's browser session

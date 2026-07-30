@@ -8,9 +8,8 @@ services:
     # was created manually before this file existed (Render only
     # auto-applies render.yaml to Blueprint-created services; a pre-
     # existing service keeps whatever Build Command was set by hand in its
-    # dashboard, which is exactly what caused the "Chromium executable
-    # does not exist" failure this fixes). `npm install` alone is enough
-    # either way.
+    # dashboard). `npm install` alone is enough either way. No `--with-deps`
+    # — see src/utils/launchChromium.ts for why.
     buildCommand: npm install
     startCommand: npm start
     envVars:
@@ -22,6 +21,17 @@ services:
       # same cache location, which matters because Trader Joe's session
       # establishment and the Sprouts product-image fallback both launch
       # this browser at runtime (see src/utils/launchChromium.ts).
+      #
+      # CONFIRMED LIVE (production error included the literal path
+      # "/opt/render/.cache/ms-playwright/" — Playwright's *default*,
+      # unset-var location): this env var is NOT reaching the running
+      # service, which means the service is not actually syncing this
+      # render.yaml file at all — almost certainly because it was created
+      # by hand in the Render dashboard before this file existed. Render
+      # only auto-applies render.yaml to Blueprint-created services. Every
+      # env var in this file must currently also be added manually on the
+      # service's Environment tab, or the service should be recreated via
+      # New -> Blueprint so it tracks this file going forward.
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "0"
       - key: KROGER_CLIENT_ID

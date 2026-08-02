@@ -5,11 +5,12 @@ import { handleSearch } from './src/routes/search.ts';
 import { handleProductImage } from './src/routes/productImage.ts';
 import { handleTrip } from './src/routes/trip.ts';
 import { handleWarmup } from './src/routes/warmup.ts';
+import { handleHealth } from './src/routes/health.ts';
 import { handlePlanner } from './src/routes/planner.ts';
 import { handleAssistantIntent } from './src/routes/assistant.ts';
 import { handleMealPlan } from './src/routes/mealPlan.ts';
 import { handleVisionQuality } from './src/routes/visionQuality.ts';
-import { runWarmup } from './src/services/warmupService.ts';
+import { ensureWarmupStarted } from './src/services/warmupService.ts';
 import { logStartupDiagnostics } from './src/services/startupDiagnostics.ts';
 import { perfLog } from './src/utils/perfLog.ts';
 
@@ -38,6 +39,7 @@ app.post('/api/search', handleSearch);
 app.get('/api/product-image', handleProductImage);
 app.post('/api/trip', handleTrip);
 app.post('/api/warmup', handleWarmup);
+app.get('/api/health', handleHealth);
 app.post('/api/planner', handlePlanner);
 app.post('/api/assistant/intent', handleAssistantIntent);
 app.post('/api/meal-plan', handleMealPlan);
@@ -71,16 +73,20 @@ const PORT = Number(process.env.PORT) || 3001;
 const HOST = '0.0.0.0';
 app.listen(PORT, HOST, () => {
   console.log(`CartIQ_mobile backend listening on http://${HOST}:${PORT}`);
+  // The "server ready check" a client's /api/warmup call is really
+  // asking about — this line is the actual moment the process can accept
+  // a connection at all, independent of anything below it. Everything
+  // from here down runs AFTER the server is already listening, so a slow
+  // or failed step here can never delay a client from reaching /api/warmup
+  // or /api/health.
   perfLog('server:listening');
   logStartupDiagnostics();
 
-  // Fire-and-forget: pre-warm everything that doesn't depend on a shopper's
-  // zip (Kroger token, Aldi/Sprouts sessions, Trader Joe's browser session
-  // + store directory) as soon as the process is up, so the very first
-  // request the server ever handles doesn't pay for it. Never awaited here
-  // — a slow or failed warm-up must not delay/prevent the server from
-  // accepting requests; see warmupService.ts.
-  runWarmup().catch((err) => {
-    console.error('[Warmup] Unhandled error during server-boot warm-up:', err);
-  });
+  // Fire-and-forget: pre-warm everything that doesn't depend on a
+  // shopper's zip (Kroger token, Aldi/Sprouts sessions, Trader Joe's
+  // browser session + store directory) as soon as the process is up, so
+  // the very first request the server ever handles doesn't pay for it.
+  // Never awaited here — a slow or failed warm-up must not delay/prevent
+  // the server from accepting requests; see warmupService.ts.
+  ensureWarmupStarted();
 });

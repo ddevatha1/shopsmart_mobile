@@ -4,9 +4,9 @@
  * image backfill. Extracted out of routes/search.ts so other server-side
  * code (the Smart Shopping Planner's optimizer, one call per grocery-list
  * item) can call `performSearch` directly instead of issuing an HTTP
- * request back to this same server. Mirrors CartIQ_web's
+ * request back to this same server. Mirrors ShopAI_web's
  * src/services/searchService.ts (same split, same reasoning) — ported here
- * for CartIQ_mobile's independent backend.
+ * for ShopAI's independent backend.
  */
 import type { ApiProduct, NutritionAttributes, SearchResponse, StoreStatus } from '../types/index.ts';
 import { searchSproutsWithTimeout } from './sproutsLiveScraper.ts';
@@ -513,20 +513,16 @@ export async function performSearch(
     }
 
     const raw = result.value;
+    // Per-item exclusion reasons used to be logged one line per excluded
+    // product here (up to dozens per store per search — real production
+    // volume observed: ~20 lines for a single store on a single search)
+    // on top of the `search:store-funnel` line below, which already
+    // reports the same before/after counts in one line. Removed as pure
+    // noise that drowned out the actually-useful `[Perf]` timing lines in
+    // production logs; the aggregate counts are all `search:store-funnel`
+    // ever needed to make a dropped-product count investigable.
     const afterFood = raw.filter(p => isFoodProductName(p.name));
-    for (const p of raw) {
-      if (!isFoodProductName(p.name)) {
-        console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: not classified as a food product`);
-      }
-    }
-
     const relevant = afterFood.filter(p => isRelevantToQuery(searchQuery, p.name));
-    for (const p of afterFood) {
-      if (!isRelevantToQuery(searchQuery, p.name)) {
-        console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: no word overlap with query "${searchQuery}"`);
-      }
-    }
-
     const selected = selectStoreProducts(searchQuery, relevant);
     storeMap.set(store, selected);
 

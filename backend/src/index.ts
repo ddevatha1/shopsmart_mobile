@@ -6,7 +6,8 @@ import { handleProductImage } from './routes/productImage.ts';
 import { handleTrip } from './routes/trip.ts';
 import { handleWarmup } from './routes/warmup.ts';
 import { handlePlanner } from './routes/planner.ts';
-import { runWarmup } from './services/warmupService.ts';
+import { handleHealth } from './routes/health.ts';
+import { ensureWarmupStarted } from './services/warmupService.ts';
 import { perfLog } from './utils/perfLog.ts';
 
 const app = express();
@@ -18,6 +19,7 @@ app.post('/api/search', handleSearch);
 app.get('/api/product-image', handleProductImage);
 app.post('/api/trip', handleTrip);
 app.post('/api/warmup', handleWarmup);
+app.get('/api/health', handleHealth);
 app.post('/api/planner', handlePlanner);
 
 // express.json() throws a SyntaxError for unparseable bodies — mirror the
@@ -42,7 +44,5 @@ app.listen(PORT, () => {
   // request the server ever handles doesn't pay for it. Never awaited here
   // — a slow or failed warm-up must not delay/prevent the server from
   // accepting requests; see warmupService.ts.
-  runWarmup().catch((err) => {
-    console.error('[Warmup] Unhandled error during server-boot warm-up:', err);
-  });
+  ensureWarmupStarted();
 });

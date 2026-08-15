@@ -108,6 +108,10 @@ function isValidSearchResponse(value: unknown): value is SearchResponse {
   const v = value as Record<string, unknown>;
   if (!Array.isArray(v.products) || !v.products.every(isValidApiProduct)) return false;
   if (!Array.isArray(v.storeStatuses) || !v.storeStatuses.every(isValidStoreStatus)) return false;
+  // `searchId` is optional on the type (see models/types.ts) — only
+  // validated when present, never required, so this stays compatible with
+  // any response that predates it.
+  if (v.searchId !== undefined && typeof v.searchId !== 'string') return false;
   return true;
 }
 
@@ -172,6 +176,28 @@ export class ApiClient {
     }
 
     return body;
+  }
+
+  /** Polls the current state of an in-progress progressive search (see
+   * backend's GET /api/search/:searchId) — never re-runs or restarts the
+   * underlying store searches, just reads whatever's finished so far.
+   * Returns `null` for an unknown/expired searchId (backend 404) or any
+   * other failure — the caller's poll loop treats either the same way:
+   * stop polling, keep whatever results are already on screen. Never
+   * throws, matching warmup()'s own best-effort contract. */
+  async getSearchStatus(searchId: string): Promise<SearchResponse | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/search/${encodeURIComponent(searchId)}`);
+      if (!res.ok) return null;
+      const body = await res.json().catch(() => ({}));
+      if (!isValidSearchResponse(body)) {
+        console.error('[apiClient] GET /api/search/:searchId returned a malformed SearchResponse:', JSON.stringify(body));
+        return null;
+      }
+      return body;
+    } catch {
+      return null;
+    }
   }
 
   /** Fallback product photo lookup — see backend/src/routes/productImage.ts

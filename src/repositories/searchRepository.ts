@@ -13,4 +13,8 @@ export const searchRepository = {
   search(query: string, zipcode: string, options?: { noCorrect?: boolean }): Promise<SearchResponse> {
     return apiClient.search(query, zipcode, options);
   },
+  /** Polls a progressive search's current state — see apiClient.getSearchStatus. */
+  status(searchId: string): Promise<SearchResponse | null> {
+    return apiClient.getSearchStatus(searchId);
+  },
 };

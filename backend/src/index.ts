@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import type { ErrorRequestHandler } from 'express';
-import { handleSearch } from './routes/search.ts';
+import { handleSearch, handleSearchStatus } from './routes/search.ts';
 import { handleProductImage } from './routes/productImage.ts';
 import { handleTrip } from './routes/trip.ts';
 import { handleWarmup } from './routes/warmup.ts';
@@ -16,6 +16,7 @@ app.use(cors());
 app.use(express.json());
 
 app.post('/api/search', handleSearch);
+app.get('/api/search/:searchId', handleSearchStatus);
 app.get('/api/product-image', handleProductImage);
 app.post('/api/trip', handleTrip);
 app.post('/api/warmup', handleWarmup);

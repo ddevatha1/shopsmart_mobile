@@ -22,6 +22,7 @@ import { useStoreModeStore } from '../store/storeModeStore';
 import { ProductGroupCard } from '../components/ProductGroupCard';
 import { ProductCard } from '../components/ProductCard';
 import { SearchProgress } from '../components/SearchProgress';
+import { StillSearchingBanner, StoreStillSearchingState } from '../components/StillSearchingBanner';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
@@ -150,6 +151,16 @@ export function SearchScreen() {
 
   const { hasSearched, loading, error, activeQuery, correction, search } = useSearchStore();
   const products = useSearchStore((s) => s.products);
+  const storeStatuses = useSearchStore((s) => s.storeStatuses);
+  // Stores the backend is still working on for the CURRENT search (see
+  // searchStore.ts's poll loop, which clears these automatically as each
+  // one finishes — no user action needed). Computed here rather than read
+  // as its own bit of store state since it's purely derived from
+  // `storeStatuses`, already reactive.
+  const pendingStores = useMemo(
+    () => storeStatuses.filter((s) => s.status === 'pending').map((s) => s.store),
+    [storeStatuses],
+  );
   const addToCart = useCartStore((s) => s.addToCart);
 
   const canSubmit = query.trim().length > 0 && zipcode.length === 5;
@@ -290,6 +301,7 @@ export function SearchScreen() {
             onSearchOriginal={searchOriginal}
             onOpenPlanner={() => navigation.navigate('Planner')}
             onQuickSearch={runSearch}
+            pendingStores={pendingStores}
           />
           <ComparisonView
             group={combinedGroup}
@@ -333,6 +345,7 @@ export function SearchScreen() {
             hasSearched={hasSearched}
             error={error}
             displayedCount={displayedItems.length}
+            pendingStores={pendingStores}
             totalProductCount={products.length}
             recentSearches={recentSearches}
             advisorInsight={advisorInsight}
@@ -422,16 +435,25 @@ interface SearchHeaderProps {
   onSearchOriginal: (original: string) => void;
   onOpenPlanner: () => void;
   onQuickSearch: (term: string) => void;
+  /** Stores the current search's response marked 'pending' — see
+   * searchStore.ts. Empty once every store has a terminal status (its own
+   * poll loop clears this automatically as each one finishes). */
+  pendingStores: StoreName[];
 }
 
 function SearchHeader({
   query, setQuery, invalidQueryMessage, canSubmit, loading, onSubmit,
   hasSearched, error, displayedCount, totalProductCount, recentSearches, advisorInsight,
   onSeeProduct, onAddToCart, selectedStore, onOpenStorePicker, onClearStore,
-  correction, onSearchOriginal, onOpenPlanner, onQuickSearch,
+  correction, onSearchOriginal, onOpenPlanner, onQuickSearch, pendingStores,
 }: SearchHeaderProps) {
   const chipTerms = recentSearches.length > 0 ? recentSearches : POPULAR;
   const chipLabel = recentSearches.length > 0 ? 'Recent:' : 'Popular:';
+  // "Search Within One Store" mode with zero results so far: tell apart
+  // "this store genuinely has nothing" from "this store just hasn't
+  // finished yet" — showing the generic empty state for the latter would
+  // read as a false negative right up until the poll loop quietly fixes it.
+  const selectedStorePending = selectedStore != null && pendingStores.includes(selectedStore);
   return (
     <>
       <View style={styles.hero}>
@@ -534,21 +556,37 @@ function SearchHeader({
           </View>
         )}
 
+        {/* Already-loaded results (above, when displayedCount > 0) are never
+         * hidden or blocked while other stores are still working — this is
+         * purely an additional, dismissible-by-completing-itself notice.
+         * Skipped when the store-specific "still searching" empty state
+         * below is about to show instead, so a single-store search with
+         * zero results so far never shows the same information twice. */}
+        {hasSearched && !loading && error == null && pendingStores.length > 0 && !(displayedCount === 0 && selectedStorePending) && (
+          <StillSearchingBanner stores={pendingStores} />
+        )}
+
         {hasSearched && !loading && error == null && displayedCount === 0 && (
-          <FadeInState>
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>
-                {selectedStore ? `No products found at ${selectedStore}` : 'No comparable products found'}
-              </Text>
-              <Text style={styles.emptyText}>
-                {totalProductCount === 0
-                  ? 'Try a different search term.'
-                  : selectedStore
-                    ? 'Try a different search term, or compare across stores instead.'
-                    : 'Check the refinement options below.'}
-              </Text>
-            </View>
-          </FadeInState>
+          selectedStore && selectedStorePending ? (
+            <StoreStillSearchingState store={selectedStore} />
+          ) : (
+            <FadeInState>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>
+                  {selectedStore ? `No products found at ${selectedStore}` : 'No comparable products found'}
+                </Text>
+                <Text style={styles.emptyText}>
+                  {pendingStores.length > 0
+                    ? 'Still gathering results from the stores that are searching — this will update automatically.'
+                    : totalProductCount === 0
+                      ? 'Try a different search term.'
+                      : selectedStore
+                        ? 'Try a different search term, or compare across stores instead.'
+                        : 'Check the refinement options below.'}
+                </Text>
+              </View>
+            </FadeInState>
+          )
         )}
       </View>
     </>

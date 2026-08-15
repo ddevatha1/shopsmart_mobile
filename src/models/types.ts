@@ -99,6 +99,13 @@ export interface SearchResponse {
   products: ApiProduct[];
   storeStatuses: StoreStatus[];
   correction?: QueryCorrectionInfo;
+  /** Present whenever the backend used its progressive-results path (see
+   * backend/src/services/searchService.ts's startProgressiveSearch) — lets
+   * the client poll `GET /api/search/:searchId` (apiClient.getSearchStatus)
+   * to pick up any store still `'pending'` in this response, as it
+   * finishes, without re-running the search. Optional purely so older
+   * cached/fixture responses without it still satisfy this type. */
+  searchId?: string;
 }
 
 // ── Route planning — mirrors backend/src/types/index.ts field-for-field ────

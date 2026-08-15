@@ -381,6 +381,74 @@ function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
   );
 }
 
+// ── Global per-search response budget ──────────────────────────────────
+//
+// Every store call above already carries its OWN timeout (15s for the
+// plain-API stores, 45s for Trader Joe's worst case), but `Promise.allSettled`
+// only ever resolves once EVERY branch has settled — so before this, the
+// overall `/api/search` response was gated by whichever store's own
+// timeout happened to be largest, even though the other stores had
+// already come back in a couple of seconds. One slow-but-not-fast-failing
+// store (a real network hiccup, an upstream provider having a bad moment)
+// could silently turn every search into a 15-45s wait for every store,
+// not just the slow one — exactly the "one slow store blocks everything"
+// failure mode this whole pipeline was supposed to avoid.
+//
+// `raceAgainstResponseBudget` fixes that by racing each store's own
+// (already-settling) promise against a SHARED, much shorter budget. A
+// store that's still running when the budget elapses is reported as
+// 'pending' (see StoreStatus) rather than making every other, already-
+// finished store wait on it — the response goes out with whatever's
+// ready. The underlying promise is never cancelled: it keeps running in
+// the background and, when it does eventually finish, is only logged
+// (`search:store-late-complete`) — never lost — so a store's own result
+// cache (each store scraper keeps a short-TTL cache of its own) still gets
+// populated for that shopper's very next search.
+export const SEARCH_RESPONSE_BUDGET_MS = 10_000;
+
+export type StoreOutcome<T> = PromiseSettledResult<T> | { status: 'pending' };
+
+export function raceAgainstResponseBudget<T>(
+  store: string,
+  promise: Promise<T>,
+  budgetMs: number = SEARCH_RESPONSE_BUDGET_MS,
+): Promise<StoreOutcome<T>> {
+  const settleStart = Date.now();
+  const settled: Promise<StoreOutcome<T>> = promise.then(
+    (value): StoreOutcome<T> => ({ status: 'fulfilled', value }),
+    (reason): StoreOutcome<T> => ({ status: 'rejected', reason }),
+  );
+  return new Promise((resolve) => {
+    let settledFirst = false;
+    // Cleared the moment the store settles first — the common, warmed-up
+    // case. Without this, every store that finishes well under budget
+    // still leaves a live timer sitting in Node's timer table for the
+    // rest of the budget window for nothing; under real concurrent search
+    // volume that's several dangling timers per request that did nothing
+    // but wait to no-op.
+    const timer = setTimeout(() => {
+      if (settledFirst) return;
+      resolve({ status: 'pending' });
+      // Still resolves/rejects on its own time — just too late for THIS
+      // response. Logged, not swallowed, so a store that's chronically
+      // slower than the budget (rather than genuinely hung) is visible in
+      // the logs instead of silently always reporting 'pending'.
+      settled.then((outcome) => {
+        perfLog('search:store-late-complete', {
+          store,
+          ok: outcome.status === 'fulfilled',
+          msOverBudget: Date.now() - settleStart - budgetMs,
+        });
+      });
+    }, budgetMs);
+    settled.then((outcome) => {
+      settledFirst = true;
+      clearTimeout(timer);
+      resolve(outcome);
+    });
+  });
+}
+
 /**
  * The full search pipeline as a plain in-process function — the same logic
  * routes/search.ts's `handleSearch` runs, callable directly by other
@@ -403,11 +471,18 @@ export async function performSearch(
   perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level });
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
-  const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.allSettled([
-    timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000)), // still browser-based; includes storefront visit on first run
-    timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000)), // plain GraphQL API, no browser
-    timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000)), // REST API, no browser
-    timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000)), // GraphQL API, no browser
+  // Each store's own promise still carries its own individual timeout
+  // (below) as a background safety net — `raceAgainstResponseBudget` is
+  // what actually bounds how long THIS response waits: every store gets
+  // SEARCH_RESPONSE_BUDGET_MS to settle, and one that's still running past
+  // that comes back as 'pending' instead of holding up the other stores'
+  // already-ready results. See raceAgainstResponseBudget's own header
+  // comment for the full reasoning.
+  const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.all([
+    raceAgainstResponseBudget("Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000))), // still browser-based; includes storefront visit on first run
+    raceAgainstResponseBudget('Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000))), // plain GraphQL API, no browser
+    raceAgainstResponseBudget('Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000))), // REST API, no browser
+    raceAgainstResponseBudget('Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000))), // GraphQL API, no browser
   ]);
 
   const aggregateStart = Date.now();
@@ -415,12 +490,21 @@ export async function performSearch(
 
   const storeMap = new Map<StoreName, ScoredProduct[]>();
   const storeErrors = new Map<StoreName, string>();
+  const pendingStores = new Set<StoreName>();
 
   function collectStoreResult(
     store: StoreName,
-    result: PromiseSettledResult<ApiProduct[]>,
+    result: StoreOutcome<ApiProduct[]>,
     searchQuery: string,
   ): void {
+    if (result.status === 'pending') {
+      pendingStores.add(store);
+      perfLog('search:store-funnel', {
+        store, query: rawQuery, queryUsed: searchQuery,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, pending: true,
+      });
+      return;
+    }
     if (result.status !== 'fulfilled') {
       storeErrors.set(store, String(result.reason));
       console.warn(`[Search] ${store} error:`, result.reason);
@@ -467,6 +551,21 @@ export async function performSearch(
 
   const storeStatuses: StoreStatus[] = ALL_STORES.map(store => {
     const products = storeMap.get(store) ?? [];
+    // Still running past SEARCH_RESPONSE_BUDGET_MS when this response went
+    // out — distinct from 'error' (which means the store definitively
+    // failed/returned nothing): the shopper's client already knows to treat
+    // 'pending' as "try this store again shortly" rather than a real
+    // failure, and the store's own background completion (logged via
+    // `search:store-late-complete`) means its result cache is warm for
+    // whatever they search next regardless.
+    if (products.length === 0 && pendingStores.has(store)) {
+      return {
+        store,
+        status: 'pending',
+        count: 0,
+        error: 'Still searching — results may be available on your next search.',
+      };
+    }
     return {
       store,
       status: products.length > 0 ? 'success' : 'error',
@@ -503,6 +602,7 @@ export async function performSearch(
     zipcode,
     ms: Date.now() - requestStart,
     productCount: response.products.length,
+    pendingStores: pendingStores.size > 0 ? [...pendingStores] : undefined,
   });
   return response;
 }

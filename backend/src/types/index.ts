@@ -86,6 +86,14 @@ export interface SearchResponse {
   products: ApiProduct[];
   storeStatuses: StoreStatus[];
   correction?: QueryCorrectionInfo;
+  /** Present on every real response (both `performSearch`'s single-shot
+   * path and the progressive-results path below) — lets a client that
+   * received one or more `'pending'` storeStatuses poll `GET
+   * /api/search/:searchId` to pick up those stores' results as they
+   * finish, without re-running the search. Optional only so a response
+   * object built anywhere else (tests, older fixtures) doesn't need one to
+   * still satisfy this type. */
+  searchId?: string;
 }
 
 // ── Route planning ────────────────────────────────────────────────────────

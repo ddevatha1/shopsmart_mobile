@@ -15,6 +15,7 @@ import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
 import { correctQuery, logQueryCorrection } from './queryCorrection.ts';
 import { perfLog } from '../utils/perfLog.ts';
+import { getBackendReadiness } from './warmupService.ts';
 
 type StoreName = ApiProduct['store'];
 
@@ -366,16 +367,21 @@ function isFoodProductName(name: string): boolean {
   return !NON_FOOD_NAME_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
+// `searchId` is optional and trailing on both this function and
+// `raceAgainstResponseBudget` below purely so every existing positional
+// call site (including this file's own tests, which predate `searchId`)
+// keeps working unchanged — omitting it just omits the field from the
+// logged event rather than breaking anything.
+function timedStoreSearch<T>(store: string, promise: Promise<T>, searchId?: string): Promise<T> {
   const start = Date.now();
-  perfLog('search:store-start', { store });
+  perfLog('search:store-start', { store, searchId });
   return promise.then(
     (value) => {
-      perfLog('search:store-complete', { store, ok: true, ms: Date.now() - start });
+      perfLog('search:store-complete', { store, ok: true, ms: Date.now() - start, searchId });
       return value;
     },
     (err) => {
-      perfLog('search:store-complete', { store, ok: false, ms: Date.now() - start });
+      perfLog('search:store-complete', { store, ok: false, ms: Date.now() - start, searchId });
       throw err;
     },
   );
@@ -412,6 +418,11 @@ export function raceAgainstResponseBudget<T>(
   store: string,
   promise: Promise<T>,
   budgetMs: number = SEARCH_RESPONSE_BUDGET_MS,
+  // Trailing/optional — see timedStoreSearch's own comment on why. Its one
+  // job here: let a `search:store-late-complete` event (which can fire
+  // seconds after the response that produced the original 'pending' has
+  // already gone out) still be joined back to that exact search.
+  searchId?: string,
 ): Promise<StoreOutcome<T>> {
   const settleStart = Date.now();
   const settled: Promise<StoreOutcome<T>> = promise.then(
@@ -438,6 +449,7 @@ export function raceAgainstResponseBudget<T>(
           store,
           ok: outcome.status === 'fulfilled',
           msOverBudget: Date.now() - settleStart - budgetMs,
+          searchId,
         });
       });
     }, budgetMs);
@@ -461,14 +473,32 @@ export async function performSearch(
   options?: { noCorrect?: boolean },
 ): Promise<SearchResponse> {
   const requestStart = Date.now();
-  perfLog('search:request-start', { query: rawQuery, zipcode });
+  // A short, per-invocation correlation id — attached to every perfLog
+  // event this one search produces, including `search:store-late-complete`,
+  // which can fire seconds after this function has already returned (see
+  // raceAgainstResponseBudget). Without it, a late-complete event could
+  // only be tied back to "some search for this store, roughly around this
+  // time" instead of the exact search that reported it 'pending'.
+  // `crypto.randomUUID()` is already used elsewhere in this codebase
+  // (aldiLiveScraper.ts/sproutsLiveScraper.ts) as a global, no import
+  // needed — sliced to 8 chars purely to keep log lines short; this is a
+  // correlation id, not a security token, so collision risk here is a
+  // non-issue at this app's real request volume.
+  const searchId = crypto.randomUUID().slice(0, 8);
+  // Captured once, right at the start of the search, from the same
+  // readiness snapshot /api/warmup itself reads — never triggers or waits
+  // on warm-up work, just reports whatever the current real state already
+  // is for this zip. Lets a cold/warming search be told apart from a warm
+  // one after the fact, without guessing from latency alone.
+  const warmupStatus = getBackendReadiness(zipcode).status;
+  perfLog('search:request-start', { query: rawQuery, zipcode, searchId });
 
   const correctionStart = Date.now();
   const correction = options?.noCorrect
     ? { original: rawQuery, normalized: rawQuery.trim(), corrected: rawQuery.trim(), correctedDisplay: rawQuery.trim(), confidence: 1, level: 'none' as const, method: 'skipped-by-request' }
     : correctQuery(rawQuery);
   logQueryCorrection(correction);
-  perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level });
+  perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level, searchId });
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
   // Each store's own promise still carries its own individual timeout
@@ -477,16 +507,19 @@ export async function performSearch(
   // SEARCH_RESPONSE_BUDGET_MS to settle, and one that's still running past
   // that comes back as 'pending' instead of holding up the other stores'
   // already-ready results. See raceAgainstResponseBudget's own header
-  // comment for the full reasoning.
+  // comment for the full reasoning. Budget itself is unchanged here — the
+  // explicit `SEARCH_RESPONSE_BUDGET_MS` argument (rather than relying on
+  // the default) exists only because `searchId` is the next positional
+  // argument after it.
   const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.all([
-    raceAgainstResponseBudget("Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000))), // still browser-based; includes storefront visit on first run
-    raceAgainstResponseBudget('Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000))), // plain GraphQL API, no browser
-    raceAgainstResponseBudget('Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000))), // REST API, no browser
-    raceAgainstResponseBudget('Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000))), // GraphQL API, no browser
+    raceAgainstResponseBudget("Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // still browser-based; includes storefront visit on first run
+    raceAgainstResponseBudget('Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // plain GraphQL API, no browser
+    raceAgainstResponseBudget('Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // REST API, no browser
+    raceAgainstResponseBudget('Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // GraphQL API, no browser
   ]);
 
   const aggregateStart = Date.now();
-  perfLog('search:aggregate-start', {});
+  perfLog('search:aggregate-start', { searchId });
 
   const storeMap = new Map<StoreName, ScoredProduct[]>();
   const storeErrors = new Map<StoreName, string>();
@@ -501,7 +534,7 @@ export async function performSearch(
       pendingStores.add(store);
       perfLog('search:store-funnel', {
         store, query: rawQuery, queryUsed: searchQuery,
-        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, pending: true,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, pending: true, searchId,
       });
       return;
     }
@@ -510,7 +543,7 @@ export async function performSearch(
       console.warn(`[Search] ${store} error:`, result.reason);
       perfLog('search:store-funnel', {
         store, query: rawQuery, queryUsed: searchQuery,
-        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, error: true,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, error: true, searchId,
       });
       return;
     }
@@ -541,6 +574,7 @@ export async function performSearch(
       afterFoodFilter: afterFood.length,
       afterRelevanceFilter: relevant.length,
       finalCount: selected.length,
+      searchId,
     });
   }
 
@@ -574,6 +608,19 @@ export async function performSearch(
     };
   });
 
+  // Purely a count of the SAME `storeStatuses` computed above, restated as
+  // a compact object for observability — never changes what's sent back to
+  // the client (that's still `storeStatuses` itself, untouched). Lets
+  // "what % of searches had all 4 stores succeed" / "3 of 4" / "≤2 of 4"
+  // be answered directly from `search:request-complete` log lines instead
+  // of parsing `pendingStores` and cross-referencing per-store error state
+  // by hand.
+  const storeSummary = {
+    success: storeStatuses.filter(s => s.status === 'success').length,
+    pending: storeStatuses.filter(s => s.status === 'pending').length,
+    error: storeStatuses.filter(s => s.status === 'error').length,
+  };
+
   const scored: ScoredProduct[] = ALL_STORES.flatMap(store => storeMap.get(store) ?? []);
 
   scored.sort((a, b) => {
@@ -596,13 +643,16 @@ export async function performSearch(
       },
     }),
   };
-  perfLog('search:aggregate-complete', { ms: Date.now() - aggregateStart, productCount: response.products.length });
+  perfLog('search:aggregate-complete', { ms: Date.now() - aggregateStart, productCount: response.products.length, searchId });
   perfLog('search:request-complete', {
     query,
     zipcode,
     ms: Date.now() - requestStart,
     productCount: response.products.length,
     pendingStores: pendingStores.size > 0 ? [...pendingStores] : undefined,
+    storeSummary,
+    warmupStatus,
+    searchId,
   });
   return response;
 }

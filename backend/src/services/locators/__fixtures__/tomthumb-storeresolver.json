@@ -1,0 +1,142 @@
+[
+  {
+    "locationId": "11",
+    "distance": 1.41,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "11401 Coit Rd",
+      "city": "Frisco",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75035"
+    },
+    "localPage": "https://local.tomthumb.com/tx/frisco/11401-coit-rd.html"
+  },
+  {
+    "locationId": "2581",
+    "distance": 3.51,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "4848 Preston Rd",
+      "city": "Frisco",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75034"
+    },
+    "localPage": "https://local.tomthumb.com/tx/frisco/4848-preston-rd.html"
+  },
+  {
+    "locationId": "4561",
+    "distance": 4.01,
+    "polarisBannerName": "shopmarketstreet",
+    "domainName": "Market Street",
+    "address": {
+      "line1": "6100 W El Dorado Pkwy",
+      "city": "McKinney",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75070"
+    },
+    "localPage": "https://local.marketstreetunited.com/tx/mckinney/6100-w-el-dorado-pkwy.html"
+  },
+  {
+    "locationId": "296",
+    "distance": 4.47,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "6800 W Virginia Pkwy",
+      "city": "McKinney",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75071"
+    },
+    "localPage": "https://local.tomthumb.com/tx/mckinney/6800-w-virginia-pkwy.html"
+  },
+  {
+    "locationId": "2562",
+    "distance": 5.06,
+    "polarisBannerName": "shopmarketstreet",
+    "domainName": "Market Street",
+    "address": {
+      "line1": "11999 Dallas Pkwy",
+      "city": "Frisco",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75033"
+    },
+    "localPage": "https://local.marketstreetunited.com/tx/frisco/11999-dallas-pkwy.html"
+  },
+  {
+    "locationId": "685",
+    "distance": 5.25,
+    "polarisBannerName": "shopmarketstreet",
+    "domainName": "Market Street",
+    "address": {
+      "line1": "4268 Legacy Dr",
+      "city": "Frisco",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75034"
+    },
+    "localPage": "https://local.marketstreetunited.com/tx/frisco/4268-legacy-dr.html"
+  },
+  {
+    "locationId": "2595",
+    "distance": 5.57,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "3945 Legacy Dr",
+      "city": "Plano",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75023"
+    },
+    "localPage": "https://local.tomthumb.com/tx/plano/3945-legacy-dr.html"
+  },
+  {
+    "locationId": "1788",
+    "distance": 5.59,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "7801 Alma Dr",
+      "city": "Plano",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75025"
+    },
+    "localPage": "https://local.tomthumb.com/tx/plano/7801-alma-dr.html"
+  },
+  {
+    "locationId": "3853",
+    "distance": 5.68,
+    "polarisBannerName": "tomthumb",
+    "domainName": "Tom Thumb",
+    "address": {
+      "line1": "3001 Hardin Blvd",
+      "city": "McKinney",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75070"
+    },
+    "localPage": "https://local.tomthumb.com/tx/mckinney/3001-hardin-blvd.html"
+  },
+  {
+    "locationId": "263",
+    "distance": 6.24,
+    "polarisBannerName": "shopmarketstreet",
+    "domainName": "Market Street",
+    "address": {
+      "line1": "985 W Bethany Dr",
+      "city": "Allen",
+      "state": "TX",
+      "country": "US",
+      "zipcode": "75013"
+    },
+    "localPage": "https://local.marketstreetunited.com/tx/allen/985-w-bethany-dr.html"
+  }
+]

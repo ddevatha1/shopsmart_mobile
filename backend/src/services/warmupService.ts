@@ -26,10 +26,15 @@
  * synchronously, so the route always has something honest to respond with
  * immediately regardless of how far along the real warm-up is.
  */
-import { warmKroger } from './krogerLiveScraper.ts';
+import { warmKroger, warmHarrisTeeter } from './krogerLiveScraper.ts';
 import { warmAldi } from './aldiLiveScraper.ts';
 import { warmSprouts } from './sproutsLiveScraper.ts';
 import { warmTraderJoes } from './traderJoesLiveScraper.ts';
+import { warmAlbertsonsDirectory } from './locators/albertsonsLocator.ts';
+import { warmTomThumbLocator } from './locators/tomThumbLocator.ts';
+import { warmWholeFoodsLocator } from './locators/wholeFoodsLocator.ts';
+import { warmWholeFoods } from './wholeFoodsLiveScraper.ts';
+import { warmPublix } from './publixLiveScraper.ts';
 import { perfLog } from '../utils/perfLog.ts';
 
 // ─── Backend readiness state ────────────────────────────────────────────
@@ -164,6 +169,22 @@ function buildTasks(zipcode?: string): WarmupTask[] {
     { store: 'Sprouts', run: () => warmSprouts(zipcode) },
     { store: 'Kroger', run: () => warmKroger(zipcode) },
     { store: 'Aldi', run: () => warmAldi(zipcode) },
+    // No product session to warm (see albertsonsLiveScraper.ts) — this only
+    // pre-fetches the real store-location directory so the first search
+    // that touches Albertsons isn't slowed by it.
+    { store: 'Albertsons', run: () => warmAlbertsonsDirectory() },
+    // Same OAuth token as Kroger (already warmed above) — this only pays
+    // the Harris Teeter-specific nearest-location lookup.
+    { store: 'Harris Teeter', run: () => warmHarrisTeeter(zipcode) },
+    // No product session to warm (see tomThumbLiveScraper.ts) — this only
+    // pre-fetches the nearest-location lookup once a zip is known.
+    { store: 'Tom Thumb', run: () => warmTomThumbLocator(zipcode) },
+    // Base anonymous session (cheap) + the store-directory crawl — see
+    // wholeFoodsLocator.ts's own header comment.
+    { store: 'Whole Foods Market', run: () => Promise.all([warmWholeFoods(), warmWholeFoodsLocator(zipcode)]).then(() => undefined) },
+    // Anonymous session (cheap) + nearest-store lookup, same pattern as
+    // Sprouts — see publixLiveScraper.ts.
+    { store: 'Publix', run: () => warmPublix(zipcode) },
   ];
 }
 

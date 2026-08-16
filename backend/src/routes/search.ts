@@ -2,17 +2,17 @@
  * POST /api/search — thin Express wrapper around startProgressiveSearch
  * (see services/searchService.ts). Uses the progressive path, not
  * `performSearch` directly, so this HTTP route returns as soon as the
- * first store has a real result instead of waiting for every store —
- * `performSearch` itself is unchanged and still used as-is by other
- * server-side code (the Smart Shopping Planner's optimizer), which needs a
- * single complete-as-possible result per grocery-list item rather than a
- * fast-but-partial one. Mirrors shopsmart_web's app/api/search/route.ts.
+ * first store has a real result instead of waiting for every one of the
+ * 9 stores — `performSearch` itself is unchanged and still used as-is by
+ * other server-side code (the Smart Shopping Planner's optimizer), which
+ * needs a single complete-as-possible result per grocery-list item rather
+ * than a fast-but-partial one.
  */
 import type { Request, Response } from 'express';
 import { startProgressiveSearch, getSearchSnapshot } from '../services/searchService.ts';
 
 export async function handleSearch(req: Request, res: Response): Promise<void> {
-  const body = req.body as { query?: string; zipcode?: string; noCorrect?: boolean };
+  const body = req.body as { query?: string; zipcode?: string; noCorrect?: boolean; latitude?: number; longitude?: number };
 
   const rawQuery = body.query?.trim();
   const zipcode = body.zipcode?.trim();
@@ -27,8 +27,13 @@ export async function handleSearch(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  const preciseCoords =
+    typeof body.latitude === 'number' && typeof body.longitude === 'number'
+      ? { latitude: body.latitude, longitude: body.longitude }
+      : undefined;
+
   try {
-    const response = await startProgressiveSearch(rawQuery, zipcode, { noCorrect: body.noCorrect });
+    const response = await startProgressiveSearch(rawQuery, zipcode, { noCorrect: body.noCorrect, preciseCoords });
     res.json(response);
   } catch (err) {
     console.warn('[Search] search failed:', err);

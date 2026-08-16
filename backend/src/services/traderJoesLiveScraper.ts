@@ -11,16 +11,19 @@
  *   3. Map results to ApiProduct[], keeping only actual grocery items
  */
 
-import { chromium, request } from 'playwright';
+import { request } from 'playwright';
 import type { APIRequestContext, Browser, BrowserContext } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ApiProduct, StoreLocation } from '../types/index.ts';
 import { hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
+import { launchChromium } from '../utils/launchChromium.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createTraderJoesLocator, warmDirectory as warmTraderJoesDirectory } from './locators/traderJoesLocator.ts';
+import type { PreciseCoords } from './locators/types.ts';
+import { isStoreReady, markStoreReady, markStoreWarming, logSearchSkippedStore } from './storeReadiness.ts';
 
 const TJ_GRAPHQL_URL = 'https://www.traderjoes.com/api/graphql';
 const SESSION_PATH = path.join(process.cwd(), '.traderjoes-session.json');
@@ -188,34 +191,32 @@ async function buildApiRequestContext(): Promise<APIRequestContext> {
 
 // Launches its own short-lived browser purely to visit the storefront and
 // persist session cookies to SESSION_PATH — a no-op once that file already
-// exists. Factored out of searchTraderJoes so this one-time cost (the
-// ~3-30s storefront visit) can be paid during app-startup warm-up instead
-// of during a shopper's first real search; searchTraderJoes still calls
-// this itself as a fallback in case warm-up hasn't finished (or hasn't run
-// at all) by the time a search arrives, so behavior is unchanged either way.
-// Wrapped in dedupeInFlight so a racing warm-up and a shopper's first real
-// search — both finding no session file at the same instant — share one
-// browser launch instead of each starting their own.
+// exists. Only ever called from warmTraderJoes (app-startup / app-open
+// warm-up) and, as a background fire-and-forget, from searchTraderJoes when
+// it finds no session ready yet — searchTraderJoes itself never awaits this,
+// so this one-time cost (the ~3-30s storefront visit) can never block a
+// search again (see storeReadiness.ts's header comment for the incident
+// this fixes). Wrapped in dedupeInFlight so a racing warm-up and a
+// backgrounded search-triggered bootstrap — both finding no session file at
+// the same instant — share one browser launch instead of each starting
+// their own.
 async function establishSessionIfNeeded(): Promise<void> {
-  if (fs.existsSync(SESSION_PATH)) return;
+  if (fs.existsSync(SESSION_PATH)) {
+    markStoreReady('traderjoes');
+    return;
+  }
 
+  markStoreWarming('traderjoes');
   await dedupeInFlight('trader-joes-session', async () => {
-    if (fs.existsSync(SESSION_PATH)) return;
+    if (fs.existsSync(SESSION_PATH)) {
+      markStoreReady('traderjoes');
+      return;
+    }
 
     console.log('[TraderJoes] No session — visiting storefront first');
     let browser: Browser | null = null;
     try {
-      browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-first-run',
-        ],
-      });
+      browser = await launchChromium();
 
       const context = await buildContext(browser);
       await stealthContext(context);
@@ -229,6 +230,7 @@ async function establishSessionIfNeeded(): Promise<void> {
       await page.close();
 
       await context.storageState({ path: SESSION_PATH });
+      markStoreReady('traderjoes');
     } finally {
       if (browser) await browser.close().catch(() => {});
     }
@@ -239,8 +241,9 @@ async function establishSessionIfNeeded(): Promise<void> {
 export async function searchTraderJoes(
   query: string,
   zip: string,
+  preciseCoords?: PreciseCoords,
 ): Promise<ApiProduct[]> {
-  const storeLocation = await traderJoesLocator.findNearestStore(zip);
+  const storeLocation = await traderJoesLocator.findNearestStore(zip, preciseCoords);
   if (!storeLocation?.storeId) {
     console.log(`[TraderJoes] No Trader Joe's location found near ${zip}`);
     return [];
@@ -256,8 +259,21 @@ export async function searchTraderJoes(
 
   console.log(`[TraderJoes] Live fetch for "${query}" @ zip ${zip}, store ${storeCode} (${storeLocation.name})`);
 
-  // No-op if warm-up (or an earlier search) already established a session.
-  await establishSessionIfNeeded();
+  // Session bootstrap is a real headless-Chromium launch + storefront visit
+  // (~3-30s) — the single biggest cold-start cost in the app, and it must
+  // NEVER be paid inline on the search path (that's exactly what used to
+  // block a search for ~32s whenever warm-up hadn't finished yet). If
+  // warm-up (or an earlier search) hasn't already established a session,
+  // skip Trader Joe's for THIS search only — the other stores' results
+  // still come back on time — and kick session bootstrap off in the
+  // background so the NEXT search for this store is warm.
+  if (!isStoreReady('traderjoes')) {
+    logSearchSkippedStore('traderjoes', 'session not warm yet — bootstrapping in background');
+    establishSessionIfNeeded().catch(err => {
+      console.warn('[TraderJoes] Background session bootstrap failed:', err);
+    });
+    throw new Error("Trader Joe's is still warming up — try your search again in a few seconds.");
+  }
 
   // A plain HTTP client sharing the persisted session cookie — no browser
   // process, no page render. Only session *establishment* (above) ever
@@ -334,8 +350,9 @@ export function searchTraderJoesWithTimeout(
   query: string,
   zip: string,
   timeoutMs: number,
+  preciseCoords?: PreciseCoords,
 ): Promise<ApiProduct[]> {
-  return withTimeout(searchTraderJoes(query, zip), timeoutMs, "Trader Joe's search");
+  return withTimeout(searchTraderJoes(query, zip, preciseCoords), timeoutMs, "Trader Joe's search");
 }
 
 // ── Warm-up ────────────────────────────────────────────────────────────────

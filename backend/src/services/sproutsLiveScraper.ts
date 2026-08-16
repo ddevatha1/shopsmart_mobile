@@ -26,16 +26,18 @@
  * near.
  */
 
-import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ApiProduct } from '../types/index.ts';
 import { toTitleCase, hashCode } from '../utils/textFormat.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
+import { launchChromium } from '../utils/launchChromium.ts';
+import { fetchWithBackoff } from '../utils/fetchWithBackoff.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createSproutsLocator } from './locators/sproutsLocator.ts';
+import { markStoreReady, markStoreWarming, logSearchUsedColdPath } from './storeReadiness.ts';
 
 const SESSION_PATH = path.join(process.cwd(), '.sprouts-session.json');
 const SPROUTS_HOME_URL = 'https://shop.sprouts.com/';
@@ -55,7 +57,7 @@ let sessionCache: { cookie: string; expiresAt: number } | null = null;
 const SESSION_REUSE_MS = 6 * 60 * 60 * 1000;
 
 async function establishSproutsSession(): Promise<string> {
-  const res = await fetch(SPROUTS_HOME_URL, { redirect: 'follow', cache: 'no-store' });
+  const res = await fetchWithBackoff(SPROUTS_HOME_URL, { redirect: 'follow', cache: 'no-store' });
   await res.text().catch(() => undefined);
 
   if (!res.ok) {
@@ -76,16 +78,20 @@ async function establishSproutsSession(): Promise<string> {
 // instead of each establishing their own.
 async function getSproutsSessionCookie(forceRefresh = false): Promise<string> {
   if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+    markStoreReady('sprouts');
     return sessionCache.cookie;
   }
 
+  markStoreWarming('sprouts');
   return dedupeInFlight('sprouts-session', async () => {
     if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+      markStoreReady('sprouts');
       return sessionCache.cookie;
     }
     console.log('[Sprouts] Establishing a fresh anonymous session...');
     const cookie = await establishSproutsSession();
     sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
+    markStoreReady('sprouts');
     console.log('[Sprouts] Session established.');
     return cookie;
   });
@@ -137,7 +143,7 @@ async function fetchSearchResults(
   url.searchParams.set('variables', JSON.stringify(variables));
   url.searchParams.set('extensions', JSON.stringify(extensions));
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithBackoff(url.toString(), {
     headers: {
       accept: '*/*',
       'content-type': 'application/json',
@@ -334,7 +340,13 @@ export async function searchSprouts(query: string, postalCode?: string): Promise
 
   console.log(`[Sprouts] Live fetch for "${query}" @ postal ${postalCode}, shop ${shopId} (${storeLocation.name})`);
 
+  // Cheap enough (a plain HTTP GET) to bootstrap inline if warm-up hasn't
+  // already done it — unlike Trader Joe's, never worth skipping the store
+  // over. Logged purely for cold-start observability.
+  const hadWarmSession = sessionCache !== null && Date.now() < sessionCache.expiresAt;
+  const sessionStart = Date.now();
   let sessionCookie = await getSproutsSessionCookie();
+  if (!hadWarmSession) logSearchUsedColdPath('sprouts', Date.now() - sessionStart);
   let json = await fetchSearchResults(query, postalCode, shopId, zoneId, sessionCookie);
 
   // Self-heal once: a cached session can go stale between requests even
@@ -410,6 +422,18 @@ export function searchSproutsWithTimeout(
 // Establishes the anonymous session cookie (and, once a zip is known, the
 // nearest-store lookup) at app-startup time instead of on the first real
 // search — see warmKroger in krogerLiveScraper.ts for the same pattern.
+// Kept eager (run at server-boot warm-up, not deferred to a shopper's
+// first real search) even after a real, observed HTTP 429 here in
+// production: switching to lazy-on-first-search wouldn't remove the rate
+// limit risk, it would just move it onto a shopper's request instead of a
+// background warm-up — worse, not better, since warmAll (see
+// warmupService.ts) already isolates this failure from every other store
+// and from server startup itself (fire-and-forget, per index.ts), while a
+// failure on a shopper's actual first search is user-visible. The real
+// fix for the 429 is fetchWithBackoff above; staying eager is what lets a
+// transient rate limit resolve itself (via retry/backoff, and via
+// sessionCache staying null so the next call — warm-up retry or a real
+// search — naturally tries again) before any shopper ever needs Sprouts.
 export async function warmSprouts(zip?: string): Promise<void> {
   await getSproutsSessionCookie();
   if (zip) await sproutsLocator.findNearestStore(zip);
@@ -429,17 +453,7 @@ export async function fetchSproutsProductImage(
 ): Promise<string | null> {
   let browser: Browser | null = null;
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-      ],
-    });
+    browser = await launchChromium();
 
     const context = await buildContext(browser);
     const page = await context.newPage();

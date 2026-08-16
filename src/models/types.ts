@@ -5,7 +5,10 @@
  * data-transfer types, same as on the web.
  */
 
-export const STORE_NAMES = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'] as const;
+export const STORE_NAMES = [
+  "Trader Joe's", 'Sprouts', 'Kroger', 'Aldi',
+  'Albertsons', 'Harris Teeter', 'Tom Thumb', 'Whole Foods Market', 'Publix',
+] as const;
 export type StoreName = (typeof STORE_NAMES)[number];
 
 /** The specific physical store a product listing came from — mirrors the
@@ -75,7 +78,10 @@ export interface User {
  * on every sign-in, matching `u_${Date.now()}` on the web). */
 export type AccountRecord = Omit<User, 'id'>;
 
-export type StoreSearchStatus = 'pending' | 'loading' | 'success' | 'error';
+/** 'unavailable' is distinct from 'error': it means this store has no
+ * live data source at all right now (e.g. Albertsons, Tom Thumb) — an
+ * expected, permanent-for-now state, not something that broke. */
+export type StoreSearchStatus = 'pending' | 'loading' | 'success' | 'error' | 'unavailable';
 
 export interface StoreStatus {
   store: StoreName;

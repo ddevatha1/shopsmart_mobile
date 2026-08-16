@@ -36,4 +36,17 @@ export const storeAccents: Record<StoreName, StoreAccent> = {
   Sprouts: { background: '#D1FAE5', text: '#047857', dot: '#10B981' },
   Kroger: { background: '#E0F2FE', text: '#0369A1', dot: '#0284C7' },
   Aldi: { background: '#CFFAFE', text: '#0E7490', dot: '#0E7490' },
+  Albertsons: { background: '#EDE9FE', text: '#6D28D9', dot: '#7C3AED' },
+  'Harris Teeter': { background: '#FEF3C7', text: '#B45309', dot: '#F59E0B' },
+  // Tailwind orange-100/700/500 — distinct from every existing accent.
+  'Tom Thumb': { background: '#FFEDD5', text: '#C2410C', dot: '#F97316' },
+  // Tailwind lime-100/700/500 — deliberately not the same green family as
+  // Sprouts' emerald, so the two "green grocer" brands stay visually
+  // distinguishable at a glance.
+  'Whole Foods Market': { background: '#ECFCCB', text: '#4D7C0F', dot: '#84CC16' },
+  // Tailwind teal-100/700/500 — Publix's own brand color is green too, but
+  // a third green-family accent (after Sprouts' emerald and Whole Foods'
+  // lime) would stop being visually distinguishable at a glance; teal
+  // keeps the "fresh grocer" feel while staying a genuinely different hue.
+  Publix: { background: '#CCFBF1', text: '#0F766E', dot: '#14B8A6' },
 };

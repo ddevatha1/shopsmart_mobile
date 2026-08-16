@@ -1,5 +1,6 @@
 import { TtlCache } from './ttlCache.ts';
 import { withTimeout } from './withTimeout.ts';
+import { fetchWithBackoff } from './fetchWithBackoff.ts';
 
 /**
  * Address → coordinates. Used two ways:
@@ -19,8 +20,11 @@ import { withTimeout } from './withTimeout.ts';
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const geocodeCache = new TtlCache<{ latitude: number; longitude: number } | null>(CACHE_TTL_MS);
 
-const USER_AGENT = 'ShopSmartMobile/1.0 (grocery price comparison app)';
-const FETCH_TIMEOUT_MS = 5000;
+const USER_AGENT = 'ShopAI/1.0 (grocery price comparison app)';
+// Wraps fetchWithBackoff below (which itself retries a 429 with its own
+// delays) rather than a single plain fetch, so this needs enough headroom
+// for a few retries' worth of backoff, not just one round-trip.
+const FETCH_TIMEOUT_MS = 15000;
 
 // ── Request queue ────────────────────────────────────────────────────────────
 // Nominatim's usage policy caps public-instance traffic at ~1 request/sec —
@@ -30,7 +34,12 @@ const FETCH_TIMEOUT_MS = 5000;
 // (verified live: rapid concurrent calls started returning HTTP 429). Every
 // geocode call in this app funnels through this single queue so, app-wide,
 // only one request is in flight at a time with a minimum gap between them —
-// not per-caller, since the callers don't know about each other.
+// not per-caller, since the callers don't know about each other. This pacing
+// alone didn't fully eliminate 429s in production (a burst of first-searches
+// across several zips can still queue up faster than 1.1s/request smooths
+// out) — `fetchWithBackoff` below is the second layer, retrying an
+// individual 429 with exponential backoff instead of just failing it
+// uncached.
 const MIN_INTERVAL_MS = 1100;
 let queueTail: Promise<unknown> = Promise.resolve();
 
@@ -74,12 +83,18 @@ export async function geocodeZip(zip: string): Promise<ZipGeocodeResult | null> 
 
   try {
     const res = await enqueue(() =>
-      withTimeout(fetch(url, { headers: { 'User-Agent': USER_AGENT } }), FETCH_TIMEOUT_MS, 'Nominatim ZIP geocoding'),
+      withTimeout(
+        fetchWithBackoff(url, { headers: { 'User-Agent': USER_AGENT } }),
+        FETCH_TIMEOUT_MS,
+        'Nominatim ZIP geocoding',
+      ),
     );
     if (!res.ok) {
       // A transient failure (rate limit, server error) isn't cached as a
       // permanent "no result" — only a completed lookup is. Caching this
       // would otherwise poison the 30-day cache with a temporary outage.
+      // fetchWithBackoff already retried a 429 a few times with exponential
+      // backoff before giving up — reaching here means it's still failing.
       console.warn(`[Geocode] ZIP lookup for ${zip} got HTTP ${res.status} — not caching.`);
       return null;
     }
@@ -115,7 +130,11 @@ export async function geocodeAddress(
 
   try {
     const res = await enqueue(() =>
-      withTimeout(fetch(url, { headers: { 'User-Agent': USER_AGENT } }), FETCH_TIMEOUT_MS, 'Nominatim geocoding'),
+      withTimeout(
+        fetchWithBackoff(url, { headers: { 'User-Agent': USER_AGENT } }),
+        FETCH_TIMEOUT_MS,
+        'Nominatim geocoding',
+      ),
     );
     if (!res.ok) {
       // Transient failure — see the matching comment in geocodeZip above.

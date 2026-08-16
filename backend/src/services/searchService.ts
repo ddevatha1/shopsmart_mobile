@@ -4,26 +4,43 @@
  * image backfill. Extracted out of routes/search.ts so other server-side
  * code (the Smart Shopping Planner's optimizer, one call per grocery-list
  * item) can call `performSearch` directly instead of issuing an HTTP
- * request back to this same server. Mirrors shopsmart_web's
+ * request back to this same server. Mirrors ShopAI_web's
  * src/services/searchService.ts (same split, same reasoning) — ported here
- * for shopsmart_mobile's independent backend.
+ * for ShopAI's independent backend.
  */
-import type { ApiProduct, SearchResponse, StoreStatus } from '../types/index.ts';
+import type { ApiProduct, NutritionAttributes, SearchResponse, StoreStatus } from '../types/index.ts';
 import { searchSproutsWithTimeout } from './sproutsLiveScraper.ts';
-import { searchKrogerWithTimeout } from './krogerLiveScraper.ts';
+import { searchKrogerWithTimeout, searchHarrisTeeterWithTimeout } from './krogerLiveScraper.ts';
 import { searchTraderJoesWithTimeout } from './traderJoesLiveScraper.ts';
 import { searchAldiWithTimeout } from './aldiLiveScraper.ts';
+import { searchAlbertsonsWithTimeout } from './albertsonsLiveScraper.ts';
+import { searchTomThumbWithTimeout } from './tomThumbLiveScraper.ts';
+import { searchWholeFoodsWithTimeout } from './wholeFoodsLiveScraper.ts';
+import { searchPublixWithTimeout } from './publixLiveScraper.ts';
 import { correctQuery, logQueryCorrection, type QueryCorrectionResult } from './queryCorrection.ts';
 import { perfLog } from '../utils/perfLog.ts';
-import { getBackendReadiness } from './warmupService.ts';
+import { withTimeout } from '../utils/withTimeout.ts';
+import { enrichProductsWithCanonicalId } from './canonicalProductService.ts';
+import type { PreciseCoords } from './locators/types.ts';
 
 type StoreName = ApiProduct['store'];
 
-const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'];
+// Exported for internalDashboard.ts's "stores supported" number — the
+// same list this pipeline actually searches, not a separate constant
+// that could drift from it.
+export const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Albertsons', 'Harris Teeter', 'Tom Thumb', 'Whole Foods Market', 'Publix'];
+// Stores with no live data source at all right now (see
+// albertsonsLiveScraper.ts, tomThumbLiveScraper.ts) — their empty result is
+// an expected 'unavailable' state, never counted or displayed as an 'error'.
+const UNAVAILABLE_STORES = new Set<StoreName>(['Albertsons', 'Tom Thumb']);
 
 // ─── Relevance scoring ───────────────────────────────────────────────────
 // Words that don't define what a product IS — strip these when ranking.
-const FILLER_WORDS = new Set([
+// Exported so canonicalProductService.ts can reuse the exact same
+// marketing-filler vocabulary for canonical-identity stripping instead of
+// duplicating it — the "does this word change what the product IS"
+// question is the same one relevance scoring already answers.
+export const FILLER_WORDS = new Set([
   'organic', 'natural', 'fresh', 'premium', 'artisan', 'classic', 'raw', 'pure',
   'whole', 'grade', 'certified', 'farm', 'local', 'locally', 'grown', 'harvested',
   'non-gmo', 'kosher', 'vegan', 'gluten-free', 'gluten', 'free', 'usda', 'extra',
@@ -44,7 +61,8 @@ const UNIT_OR_PACKAGING_WORDS = new Set([
   'half', 'quarter', 'double', 'triple',
 ]);
 
-function isUnitOrPackagingWord(word: string): boolean {
+// Exported for canonicalProductService.ts — same reasoning as FILLER_WORDS.
+export function isUnitOrPackagingWord(word: string): boolean {
   if (UNIT_OR_PACKAGING_WORDS.has(word) || UNIT_OR_PACKAGING_WORDS.has(singularize(word))) return true;
   if (/^\d+(\.\d+)?%?$/.test(word)) return true;
   const fused = word.match(/^\d+(?:\.\d+)?([a-z]+)$/);
@@ -198,7 +216,7 @@ export function hasDifferentHeadNoun(qWords: string[], nWords: string[]): boolea
   return false;
 }
 
-function computeRelevance(query: string, name: string): number {
+export function computeRelevance(query: string, name: string): number {
   const q = query.toLowerCase().trim();
   const n = name.toLowerCase().trim();
   const nWords = tokenizeName(n);
@@ -233,7 +251,7 @@ function computeRelevance(query: string, name: string): number {
   return score;
 }
 
-function classifyMatch(query: string, product: ApiProduct): 'direct' | 'related' {
+export function classifyMatch(query: string, product: Pick<ApiProduct, 'name' | 'category'>): 'direct' | 'related' {
   const q = query.toLowerCase().trim();
   const n = product.name.toLowerCase().trim();
   const nWords = tokenizeName(n);
@@ -265,7 +283,8 @@ const SIZE_OR_MEASURE_WORDS = new Set([
   'gal', 'gallon', 'qt', 'quart', 'pt', 'pint', 'ct', 'count',
 ]);
 
-function singularize(word: string): string {
+// Exported for canonicalProductService.ts — same reasoning as FILLER_WORDS.
+export function singularize(word: string): string {
   return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
 }
 
@@ -367,83 +386,19 @@ function isFoodProductName(name: string): boolean {
   return !NON_FOOD_NAME_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-// `searchId` is optional and trailing on both this function and
-// `raceAgainstResponseBudget` below purely so every existing positional
-// call site (including this file's own tests, which predate `searchId`)
-// keeps working unchanged — omitting it just omits the field from the
-// logged event rather than breaking anything.
-function timedStoreSearch<T>(store: string, promise: Promise<T>, searchId?: string): Promise<T> {
+function timedStoreSearch<T>(store: string, promise: Promise<T>): Promise<T> {
   const start = Date.now();
-  perfLog('search:store-start', { store, searchId });
+  perfLog('search:store-start', { store });
   return promise.then(
     (value) => {
-      perfLog('search:store-complete', { store, ok: true, ms: Date.now() - start, searchId });
+      perfLog('search:store-complete', { store, ok: true, ms: Date.now() - start });
       return value;
     },
     (err) => {
-      perfLog('search:store-complete', { store, ok: false, ms: Date.now() - start, searchId });
+      perfLog('search:store-complete', { store, ok: false, ms: Date.now() - start });
       throw err;
     },
   );
-}
-
-// ── Shared per-store post-processing ─────────────────────────────────────
-//
-// Pulled out of performSearch's own collectStoreResult so the progressive-
-// results path below (startProgressiveSearch/getSearchSnapshot) can run the
-// EXACT same food-filter → relevance-filter → ranking pipeline on a store's
-// raw results, whenever that store happens to finish — instead of
-// duplicating this logic with its own, potentially-diverging copy. Pure
-// extraction: performSearch's own behavior/output is unchanged by this.
-function filterAndRankStoreProducts(
-  store: StoreName,
-  raw: ApiProduct[],
-  searchQuery: string,
-  rawQuery: string,
-  searchId?: string,
-): ScoredProduct[] {
-  const afterFood = raw.filter(p => isFoodProductName(p.name));
-  for (const p of raw) {
-    if (!isFoodProductName(p.name)) {
-      console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: not classified as a food product`);
-    }
-  }
-
-  const relevant = afterFood.filter(p => isRelevantToQuery(searchQuery, p.name));
-  for (const p of afterFood) {
-    if (!isRelevantToQuery(searchQuery, p.name)) {
-      console.log(`[SearchFilter] ${store}: excluded "${p.name}" — reason: no word overlap with query "${searchQuery}"`);
-    }
-  }
-
-  const selected = selectStoreProducts(searchQuery, relevant);
-
-  perfLog('search:store-funnel', {
-    store,
-    query: rawQuery,
-    queryUsed: searchQuery,
-    rawCount: raw.length,
-    afterFoodFilter: afterFood.length,
-    afterRelevanceFilter: relevant.length,
-    finalCount: selected.length,
-    searchId,
-  });
-
-  return selected;
-}
-
-// Same sort every response (single-shot or a progressive snapshot) has
-// always used — pulled out so both paths can never silently diverge on
-// ranking order. Mutates `scored` in place, same as the inline
-// `scored.sort(...)` this replaces.
-function sortScoredProducts(scored: ScoredProduct[]): void {
-  scored.sort((a, b) => {
-    if (a.product.matchType !== b.product.matchType) {
-      return a.product.matchType === 'direct' ? -1 : 1;
-    }
-    if (a.relevance !== b.relevance) return b.relevance - a.relevance;
-    return a.product.price - b.product.price;
-  });
 }
 
 // ── Global per-search response budget ──────────────────────────────────
@@ -452,7 +407,7 @@ function sortScoredProducts(scored: ScoredProduct[]): void {
 // plain-API stores, 45s for Trader Joe's worst case), but `Promise.allSettled`
 // only ever resolves once EVERY branch has settled — so before this, the
 // overall `/api/search` response was gated by whichever store's own
-// timeout happened to be largest, even though the other stores had
+// timeout happened to be largest, even though the other 8 stores had
 // already come back in a couple of seconds. One slow-but-not-fast-failing
 // store (a real network hiccup, an upstream provider having a bad moment)
 // could silently turn every search into a 15-45s wait for every store,
@@ -468,7 +423,9 @@ function sortScoredProducts(scored: ScoredProduct[]): void {
 // the background and, when it does eventually finish, is only logged
 // (`search:store-late-complete`) — never lost — so a store's own result
 // cache (each store scraper keeps a short-TTL cache of its own) still gets
-// populated for that shopper's very next search.
+// populated for that shopper's very next search, same pattern already
+// used for Trader Joe's session bootstrap and Whole Foods' directory
+// crawl in warmupService.ts.
 export const SEARCH_RESPONSE_BUDGET_MS = 10_000;
 
 export type StoreOutcome<T> = PromiseSettledResult<T> | { status: 'pending' };
@@ -477,11 +434,6 @@ export function raceAgainstResponseBudget<T>(
   store: string,
   promise: Promise<T>,
   budgetMs: number = SEARCH_RESPONSE_BUDGET_MS,
-  // Trailing/optional — see timedStoreSearch's own comment on why. Its one
-  // job here: let a `search:store-late-complete` event (which can fire
-  // seconds after the response that produced the original 'pending' has
-  // already gone out) still be joined back to that exact search.
-  searchId?: string,
 ): Promise<StoreOutcome<T>> {
   const settleStart = Date.now();
   const settled: Promise<StoreOutcome<T>> = promise.then(
@@ -491,11 +443,11 @@ export function raceAgainstResponseBudget<T>(
   return new Promise((resolve) => {
     let settledFirst = false;
     // Cleared the moment the store settles first — the common, warmed-up
-    // case. Without this, every store that finishes well under budget
-    // still leaves a live timer sitting in Node's timer table for the
-    // rest of the budget window for nothing; under real concurrent search
-    // volume that's several dangling timers per request that did nothing
-    // but wait to no-op.
+    // case (see this file's timing comments below). Without this, every
+    // store that finishes well under budget still leaves a live timer
+    // sitting in Node's timer table for the rest of the budget window for
+    // nothing; under real concurrent search volume that's 9 dangling
+    // timers per request that did nothing but wait to no-op.
     const timer = setTimeout(() => {
       if (settledFirst) return;
       resolve({ status: 'pending' });
@@ -508,7 +460,6 @@ export function raceAgainstResponseBudget<T>(
           store,
           ok: outcome.status === 'fulfilled',
           msOverBudget: Date.now() - settleStart - budgetMs,
-          searchId,
         });
       });
     }, budgetMs);
@@ -517,6 +468,70 @@ export function raceAgainstResponseBudget<T>(
       clearTimeout(timer);
       resolve(outcome);
     });
+  });
+}
+
+export const MAX_NUTRITION_ENRICHMENT = 10;
+export const NUTRITION_ENRICHMENT_BUDGET_MS = 1200;
+
+/** The real production nutrition fetcher — a thin wrapper around
+ * routes/productImage.ts's cache + Open Food Facts lookup, imported
+ * dynamically (not statically) to avoid a circular module dependency:
+ * that file already imports `hasDifferentHeadNoun`/`tokenizeName` from
+ * this one. Kept as its own function (rather than inlined) so
+ * `enrichDirectMatchesWithNutrition`'s default parameter is the only
+ * place this app's search pipeline ever touches Open Food Facts
+ * specifics — everything else sees only the abstract
+ * `(name) => Promise<NutritionAttributes | undefined>` shape below. */
+async function fetchNutritionFromOpenFoodFacts(name: string): Promise<NutritionAttributes | undefined> {
+  const { getCachedOrFetchNutrition } = await import('../routes/productImage.ts');
+  return getCachedOrFetchNutrition(name);
+}
+
+/**
+ * Best-effort nutrition enrichment for the products a shopper (and the
+ * Smart Shopping Planner's optimizer, which calls performSearch directly
+ * per grocery-list item) actually sees or compares — capped to direct
+ * matches only (never every related/tangential result) and to a strict
+ * overall time budget, so a slow or unresponsive Open Food Facts can
+ * never meaningfully delay a search response.
+ *
+ * Missing nutrition (timeout, no Open Food Facts match, over the cap) is
+ * the expected, common outcome, never an error — every caller must treat
+ * `product.nutrition` as optional.
+ *
+ * `fetchNutrition` defaults to the real Open Food Facts-backed lookup and
+ * exists as a parameter purely for testability — tests inject a fake
+ * `(name) => Promise<NutritionAttributes | undefined>` instead of a real
+ * network call, without ever needing to know or fake an Open Food Facts
+ * response shape (that stays entirely inside routes/productImage.ts).
+ */
+export async function enrichDirectMatchesWithNutrition(
+  products: ApiProduct[],
+  fetchNutrition: (name: string) => Promise<NutritionAttributes | undefined> = fetchNutritionFromOpenFoodFacts,
+): Promise<ApiProduct[]> {
+  const targets = products.filter(p => p.matchType !== 'related').slice(0, MAX_NUTRITION_ENRICHMENT);
+  if (targets.length === 0) return products;
+
+  let resolved: (NutritionAttributes | undefined)[];
+  try {
+    const settled = await withTimeout(
+      Promise.allSettled(targets.map(p => fetchNutrition(p.name))),
+      NUTRITION_ENRICHMENT_BUDGET_MS,
+      'Nutrition enrichment',
+    );
+    resolved = settled.map(r => (r.status === 'fulfilled' ? r.value : undefined));
+  } catch {
+    // Budget exceeded — proceed with no enrichment this request rather
+    // than delaying the response further. Nothing found so far is kept;
+    // it's simply not attached.
+    return products;
+  }
+
+  const nutritionByName = new Map(targets.map((p, i) => [p.name, resolved[i]]));
+  return products.map(p => {
+    const nutrition = nutritionByName.get(p.name);
+    return nutrition ? { ...p, nutrition } : p;
   });
 }
 
@@ -529,56 +544,41 @@ export function raceAgainstResponseBudget<T>(
 export async function performSearch(
   rawQuery: string,
   zipcode: string,
-  options?: { noCorrect?: boolean },
+  options?: { noCorrect?: boolean; preciseCoords?: PreciseCoords },
 ): Promise<SearchResponse> {
   const requestStart = Date.now();
-  // A short, per-invocation correlation id — attached to every perfLog
-  // event this one search produces, including `search:store-late-complete`,
-  // which can fire seconds after this function has already returned (see
-  // raceAgainstResponseBudget). Without it, a late-complete event could
-  // only be tied back to "some search for this store, roughly around this
-  // time" instead of the exact search that reported it 'pending'.
-  // `crypto.randomUUID()` is already used elsewhere in this codebase
-  // (aldiLiveScraper.ts/sproutsLiveScraper.ts) as a global, no import
-  // needed — sliced to 8 chars purely to keep log lines short; this is a
-  // correlation id, not a security token, so collision risk here is a
-  // non-issue at this app's real request volume.
-  const searchId = crypto.randomUUID().slice(0, 8);
-  // Captured once, right at the start of the search, from the same
-  // readiness snapshot /api/warmup itself reads — never triggers or waits
-  // on warm-up work, just reports whatever the current real state already
-  // is for this zip. Lets a cold/warming search be told apart from a warm
-  // one after the fact, without guessing from latency alone.
-  const warmupStatus = getBackendReadiness(zipcode).status;
-  perfLog('search:request-start', { query: rawQuery, zipcode, searchId });
+  perfLog('search:request-start', { query: rawQuery, zipcode });
 
   const correctionStart = Date.now();
   const correction = options?.noCorrect
     ? { original: rawQuery, normalized: rawQuery.trim(), corrected: rawQuery.trim(), correctedDisplay: rawQuery.trim(), confidence: 1, level: 'none' as const, method: 'skipped-by-request' }
     : correctQuery(rawQuery);
   logQueryCorrection(correction);
-  perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level, searchId });
+  perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level });
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
 
+  const preciseCoords = options?.preciseCoords;
   // Each store's own promise still carries its own individual timeout
   // (below) as a background safety net — `raceAgainstResponseBudget` is
   // what actually bounds how long THIS response waits: every store gets
   // SEARCH_RESPONSE_BUDGET_MS to settle, and one that's still running past
-  // that comes back as 'pending' instead of holding up the other stores'
+  // that comes back as 'pending' instead of holding up the other 8 stores'
   // already-ready results. See raceAgainstResponseBudget's own header
-  // comment for the full reasoning. Budget itself is unchanged here — the
-  // explicit `SEARCH_RESPONSE_BUDGET_MS` argument (rather than relying on
-  // the default) exists only because `searchId` is the next positional
-  // argument after it.
-  const [traderJoesResult, sproutsResult, krogerResult, aldiResult] = await Promise.all([
-    raceAgainstResponseBudget("Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // still browser-based; includes storefront visit on first run
-    raceAgainstResponseBudget('Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // plain GraphQL API, no browser
-    raceAgainstResponseBudget('Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // REST API, no browser
-    raceAgainstResponseBudget('Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000), searchId), SEARCH_RESPONSE_BUDGET_MS, searchId), // GraphQL API, no browser
+  // comment for the full reasoning.
+  const [traderJoesResult, sproutsResult, krogerResult, aldiResult, albertsonsResult, harrisTeeterResult, tomThumbResult, wholeFoodsResult, publixResult] = await Promise.all([
+    raceAgainstResponseBudget("Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000, preciseCoords))), // skips itself (fast) rather than blocking if its session isn't warm yet — see storeReadiness.ts
+    raceAgainstResponseBudget('Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000))), // plain GraphQL API, no browser
+    raceAgainstResponseBudget('Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000, preciseCoords))), // REST API, no browser
+    raceAgainstResponseBudget('Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000))), // GraphQL API, no browser
+    raceAgainstResponseBudget('Albertsons', timedStoreSearch('Albertsons', searchAlbertsonsWithTimeout(query, zipcode, 15_000, preciseCoords))), // no live product source yet — always resolves empty, see albertsonsLiveScraper.ts
+    raceAgainstResponseBudget('Harris Teeter', timedStoreSearch('Harris Teeter', searchHarrisTeeterWithTimeout(query, zipcode, 15_000, preciseCoords))), // same official Kroger API, scoped to the HART chain — see krogerLiveScraper.ts
+    raceAgainstResponseBudget('Tom Thumb', timedStoreSearch('Tom Thumb', searchTomThumbWithTimeout(query, zipcode, 15_000, preciseCoords))), // no live product source yet — always resolves empty, see tomThumbLiveScraper.ts
+    raceAgainstResponseBudget('Whole Foods Market', timedStoreSearch('Whole Foods Market', searchWholeFoodsWithTimeout(query, zipcode, 15_000, preciseCoords))), // real SSR'd product data, no browser — see wholeFoodsLiveScraper.ts
+    raceAgainstResponseBudget('Publix', timedStoreSearch('Publix', searchPublixWithTimeout(query, zipcode, 15_000, preciseCoords))), // Instacart-fulfilled GraphQL API, no browser — see publixLiveScraper.ts
   ]);
 
   const aggregateStart = Date.now();
-  perfLog('search:aggregate-start', { searchId });
+  perfLog('search:aggregate-start', {});
 
   const storeMap = new Map<StoreName, ScoredProduct[]>();
   const storeErrors = new Map<StoreName, string>();
@@ -593,7 +593,7 @@ export async function performSearch(
       pendingStores.add(store);
       perfLog('search:store-funnel', {
         store, query: rawQuery, queryUsed: searchQuery,
-        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, pending: true, searchId,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, pending: true,
       });
       return;
     }
@@ -602,19 +602,45 @@ export async function performSearch(
       console.warn(`[Search] ${store} error:`, result.reason);
       perfLog('search:store-funnel', {
         store, query: rawQuery, queryUsed: searchQuery,
-        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, error: true, searchId,
+        rawCount: 0, afterFoodFilter: 0, afterRelevanceFilter: 0, finalCount: 0, error: true,
       });
       return;
     }
 
-    const selected = filterAndRankStoreProducts(store, result.value, searchQuery, rawQuery, searchId);
+    const raw = result.value;
+    // Per-item exclusion reasons used to be logged one line per excluded
+    // product here (up to dozens per store per search — real production
+    // volume observed: ~20 lines for a single store on a single search)
+    // on top of the `search:store-funnel` line below, which already
+    // reports the same before/after counts in one line. Removed as pure
+    // noise that drowned out the actually-useful `[Perf]` timing lines in
+    // production logs; the aggregate counts are all `search:store-funnel`
+    // ever needed to make a dropped-product count investigable.
+    const afterFood = raw.filter(p => isFoodProductName(p.name));
+    const relevant = afterFood.filter(p => isRelevantToQuery(searchQuery, p.name));
+    const selected = selectStoreProducts(searchQuery, relevant);
     storeMap.set(store, selected);
+
+    perfLog('search:store-funnel', {
+      store,
+      query: rawQuery,
+      queryUsed: searchQuery,
+      rawCount: raw.length,
+      afterFoodFilter: afterFood.length,
+      afterRelevanceFilter: relevant.length,
+      finalCount: selected.length,
+    });
   }
 
   collectStoreResult("Trader Joe's", traderJoesResult, query);
   collectStoreResult('Sprouts', sproutsResult, query);
   collectStoreResult('Kroger', krogerResult, query);
   collectStoreResult('Aldi', aldiResult, query);
+  collectStoreResult('Albertsons', albertsonsResult, query);
+  collectStoreResult('Harris Teeter', harrisTeeterResult, query);
+  collectStoreResult('Tom Thumb', tomThumbResult, query);
+  collectStoreResult('Whole Foods Market', wholeFoodsResult, query);
+  collectStoreResult('Publix', publixResult, query);
 
   const storeStatuses: StoreStatus[] = ALL_STORES.map(store => {
     const products = storeMap.get(store) ?? [];
@@ -633,6 +659,14 @@ export async function performSearch(
         error: 'Still searching — results may be available on your next search.',
       };
     }
+    if (products.length === 0 && UNAVAILABLE_STORES.has(store)) {
+      return {
+        store,
+        status: 'unavailable',
+        count: 0,
+        error: "Live pricing isn't available for this store yet.",
+      };
+    }
     return {
       store,
       status: products.length > 0 ? 'success' : 'error',
@@ -641,26 +675,41 @@ export async function performSearch(
     };
   });
 
-  // Purely a count of the SAME `storeStatuses` computed above, restated as
-  // a compact object for observability — never changes what's sent back to
-  // the client (that's still `storeStatuses` itself, untouched). Lets
-  // "what % of searches had all 4 stores succeed" / "3 of 4" / "≤2 of 4"
-  // be answered directly from `search:request-complete` log lines instead
-  // of parsing `pendingStores` and cross-referencing per-store error state
-  // by hand.
-  const storeSummary = {
-    success: storeStatuses.filter(s => s.status === 'success').length,
-    pending: storeStatuses.filter(s => s.status === 'pending').length,
-    error: storeStatuses.filter(s => s.status === 'error').length,
-  };
-
   const scored: ScoredProduct[] = ALL_STORES.flatMap(store => storeMap.get(store) ?? []);
-  sortScoredProducts(scored);
+
+  scored.sort((a, b) => {
+    if (a.product.matchType !== b.product.matchType) {
+      return a.product.matchType === 'direct' ? -1 : 1;
+    }
+    if (a.relevance !== b.relevance) return b.relevance - a.relevance;
+    return a.product.price - b.product.price;
+  });
+
+  const backfilled = backfillImagesFromSiblings(scored.map(s => s.product));
+
+  const nutritionStart = Date.now();
+  const nutritionEnriched = await enrichDirectMatchesWithNutrition(backfilled);
+  perfLog('search:nutrition-enrichment', {
+    ms: Date.now() - nutritionStart,
+    attempted: Math.min(nutritionEnriched.filter(p => p.matchType !== 'related').length, MAX_NUTRITION_ENRICHMENT),
+    resolved: nutritionEnriched.filter(p => p.nutrition != null).length,
+  });
+
+  // Synchronous and unbounded (no network, unlike nutrition enrichment
+  // above) — safe to run over every product, not just direct matches.
+  // Purely additive: same array length/order/every-other-field: only
+  // `canonicalId` is ever added, never removed or changed.
+  const canonicalStart = Date.now();
+  const enrichedProducts = enrichProductsWithCanonicalId(nutritionEnriched);
+  perfLog('search:canonical-enrichment', {
+    ms: Date.now() - canonicalStart,
+    resolved: enrichedProducts.filter(p => p.canonicalId != null).length,
+    total: enrichedProducts.length,
+  });
 
   const response: SearchResponse = {
-    products: backfillImagesFromSiblings(scored.map(s => s.product)),
+    products: enrichedProducts,
     storeStatuses,
-    searchId,
     ...(correction.level !== 'none' && {
       correction: {
         original: correction.original,
@@ -670,16 +719,13 @@ export async function performSearch(
       },
     }),
   };
-  perfLog('search:aggregate-complete', { ms: Date.now() - aggregateStart, productCount: response.products.length, searchId });
+  perfLog('search:aggregate-complete', { ms: Date.now() - aggregateStart, productCount: response.products.length });
   perfLog('search:request-complete', {
     query,
     zipcode,
     ms: Date.now() - requestStart,
     productCount: response.products.length,
     pendingStores: pendingStores.size > 0 ? [...pendingStores] : undefined,
-    storeSummary,
-    warmupStatus,
-    searchId,
   });
   return response;
 }
@@ -687,26 +733,29 @@ export async function performSearch(
 // ── Progressive search results ───────────────────────────────────────────
 //
 // `performSearch` above is a single-shot pipeline: it waits for every store
-// to either settle or hit SEARCH_RESPONSE_BUDGET_MS (whichever first),
-// THEN returns one complete SearchResponse — exactly the contract the
-// Smart Shopping Planner's optimizer needs (a final, complete-as-possible
-// result per grocery-list item), so it's kept completely unchanged above.
+// to either settle or hit SEARCH_RESPONSE_BUDGET_MS (whichever first), THEN
+// returns one complete SearchResponse — exactly the contract the Smart
+// Shopping Planner's optimizer needs (a final, complete-as-possible result
+// per grocery-list item), so it's kept completely unchanged above.
 //
 // `/api/search` itself has a different, harder requirement: a shopper
 // should see a fast store's results the moment they're ready, not once the
-// slowest-of-the-fast-stores also finishes — Promise.all over every store
-// (performSearch's approach) can't do that, since it only ever returns once
-// ALL of them have settled. `startProgressiveSearch` below returns as soon
+// slowest-of-the-fast-stores also finishes. With 9 stores fanned out in
+// parallel, `Promise.all` (performSearch's approach) can't do that — it
+// only ever returns once EVERY one of them has settled, up to the full
+// SEARCH_RESPONSE_BUDGET_MS. `startProgressiveSearch` below returns as soon
 // as the FIRST store settles (or SEARCH_RESPONSE_BUDGET_MS elapses — the
-// exact same worst-case ceiling performSearch already uses, just applied to
-// "wait for the first result" instead of "wait for the last one"), and
+// exact same worst-case ceiling `performSearch` already uses, just applied
+// to "wait for the first result" instead of "wait for the last one"), and
 // `getSearchSnapshot` lets the client poll (via the response's own
 // `searchId`) for whichever stores finish afterward — without ever
-// re-issuing the underlying store requests, which are started exactly once
-// here and simply kept running in the background regardless of how many
-// times (or whether) anyone polls for their result.
+// re-issuing the underlying store requests, which are started exactly
+// once here and simply kept running in the background regardless of how
+// many times (or whether) anyone polls for their result. Mirrors
+// shopsmart_mobile main's own client (searchStore.ts's pollForLateResults)
+// exactly — same `searchId` contract, same GET /api/search/:searchId route.
 interface SessionStoreState {
-  status: 'pending' | 'success' | 'error';
+  status: 'pending' | 'success' | 'error' | 'unavailable';
   products: ScoredProduct[];
   error?: string;
 }
@@ -722,9 +771,7 @@ interface SearchSession {
 // Short-lived, self-cleaning — a session only needs to outlive the slowest
 // store's own worst-case timeout (45s, Trader Joe's) plus headroom for a
 // client's last poll to still catch a just-finished result; nothing here
-// needs to survive a server restart or be visible across processes. Same
-// "plain in-memory Map, not a real cache/store" shape as `inFlight` in
-// warmupService.ts, for the same reason: this app runs as one process.
+// needs to survive a server restart or be visible across processes.
 const searchSessions = new Map<string, SearchSession>();
 const SEARCH_SESSION_TTL_MS = 60_000;
 
@@ -732,14 +779,22 @@ function scheduleSessionCleanup(searchId: string): void {
   setTimeout(() => searchSessions.delete(searchId), SEARCH_SESSION_TTL_MS).unref?.();
 }
 
-// Same shape/fields `performSearch`'s own `storeStatuses` builder produces
-// (see above) — kept as a separate, smaller builder rather than forcing
-// performSearch's own version to share it, since performSearch tracks
-// state via `pendingStores`/`storeErrors`/`storeMap` (three parallel
-// collections built while iterating settled Promise.all results) while a
-// session tracks the same information as one map that's mutated over time
-// as stores finish — different enough shapes that sharing one builder
-// would need one of them to bend to fit the other for no real benefit.
+/** Same food/relevance filter + selection `performSearch`'s own
+ * `collectStoreResult` runs per store, pulled out here so a store's
+ * products are classified/ranked exactly once, the moment that store's
+ * promise resolves, rather than re-doing it on every poll. */
+function classifyStoreProducts(store: StoreName, raw: ApiProduct[], searchQuery: string, rawQuery: string, searchId: string): ScoredProduct[] {
+  const afterFood = raw.filter(p => isFoodProductName(p.name));
+  const relevant = afterFood.filter(p => isRelevantToQuery(searchQuery, p.name));
+  const selected = selectStoreProducts(searchQuery, relevant);
+  perfLog('search:store-funnel', {
+    store, query: rawQuery, queryUsed: searchQuery,
+    rawCount: raw.length, afterFoodFilter: afterFood.length, afterRelevanceFilter: relevant.length, finalCount: selected.length,
+    searchId,
+  });
+  return selected;
+}
+
 function buildSnapshotResponse(session: SearchSession): SearchResponse {
   const storeStatuses: StoreStatus[] = ALL_STORES.map(store => {
     const state = session.storeState.get(store)!;
@@ -751,6 +806,14 @@ function buildSnapshotResponse(session: SearchSession): SearchResponse {
         error: 'Still searching — results may be available shortly.',
       };
     }
+    if (state.status === 'unavailable') {
+      return {
+        store,
+        status: 'unavailable',
+        count: 0,
+        error: "Live pricing isn't available for this store yet.",
+      };
+    }
     return {
       store,
       status: state.products.length > 0 ? 'success' : 'error',
@@ -760,10 +823,25 @@ function buildSnapshotResponse(session: SearchSession): SearchResponse {
   });
 
   const scored: ScoredProduct[] = ALL_STORES.flatMap(store => session.storeState.get(store)!.products);
-  sortScoredProducts(scored);
+  scored.sort((a, b) => {
+    if (a.product.matchType !== b.product.matchType) {
+      return a.product.matchType === 'direct' ? -1 : 1;
+    }
+    if (a.relevance !== b.relevance) return b.relevance - a.relevance;
+    return a.product.price - b.product.price;
+  });
+
+  const backfilled = backfillImagesFromSiblings(scored.map(s => s.product));
+  // Cheap, synchronous, no network — safe to run on every snapshot, unlike
+  // nutrition enrichment (network-bound), which the progressive path
+  // deliberately skips: a shopper polling for fast-arriving results
+  // shouldn't have each poll additionally wait on a per-store Open Food
+  // Facts round trip. The Smart Shopping Planner (performSearch's only
+  // other caller) still gets full nutrition enrichment, unaffected.
+  const enrichedProducts = enrichProductsWithCanonicalId(backfilled);
 
   return {
-    products: backfillImagesFromSiblings(scored.map(s => s.product)),
+    products: enrichedProducts,
     storeStatuses,
     searchId: session.searchId,
     ...(session.correction.level !== 'none' && {
@@ -778,26 +856,19 @@ function buildSnapshotResponse(session: SearchSession): SearchResponse {
 }
 
 /**
- * Starts all 4 store searches concurrently (exactly once — nothing here or
+ * Starts all 9 store searches concurrently (exactly once — nothing here or
  * in `getSearchSnapshot` ever re-issues them) and returns as soon as the
  * FIRST one settles, or SEARCH_RESPONSE_BUDGET_MS elapses, whichever comes
  * first. Every store's promise keeps running in the background regardless
- * of when this function itself returns — same non-cancelling guarantee
- * `raceAgainstResponseBudget` already makes for `performSearch`, applied
- * here per-store via a plain `.then()` that updates the shared session
- * instead of a second budget-racing wrapper (this function's own "return
- * on first settle" already bounds the client-visible wait; each store
- * still separately self-limits via its own existing timeout argument
- * below, unchanged from performSearch's).
+ * of when this function itself returns.
  */
 export async function startProgressiveSearch(
   rawQuery: string,
   zipcode: string,
-  options?: { noCorrect?: boolean },
+  options?: { noCorrect?: boolean; preciseCoords?: PreciseCoords },
 ): Promise<SearchResponse> {
   const requestStart = Date.now();
   const searchId = crypto.randomUUID().slice(0, 8);
-  const warmupStatus = getBackendReadiness(zipcode).status;
   perfLog('search:request-start', { query: rawQuery, zipcode, searchId, mode: 'progressive' });
 
   const correctionStart = Date.now();
@@ -807,6 +878,7 @@ export async function startProgressiveSearch(
   logQueryCorrection(correction);
   perfLog('search:query-correction', { ms: Date.now() - correctionStart, level: correction.level, searchId });
   const query = correction.level === 'none' ? correction.normalized : correction.corrected;
+  const preciseCoords = options?.preciseCoords;
 
   const session: SearchSession = {
     searchId,
@@ -818,20 +890,25 @@ export async function startProgressiveSearch(
   searchSessions.set(searchId, session);
   scheduleSessionCleanup(searchId);
 
-  // Identical store calls/timeouts to performSearch above — only the
-  // aggregation strategy around them differs.
   const storeCalls: [StoreName, Promise<ApiProduct[]>][] = [
-    ["Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000), searchId)],
-    ['Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000), searchId)],
-    ['Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000), searchId)],
-    ['Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000), searchId)],
+    ["Trader Joe's", timedStoreSearch("Trader Joe's", searchTraderJoesWithTimeout(query, zipcode, 45_000, preciseCoords))],
+    ['Sprouts', timedStoreSearch('Sprouts', searchSproutsWithTimeout(query, zipcode, 15_000))],
+    ['Kroger', timedStoreSearch('Kroger', searchKrogerWithTimeout(query, zipcode, 15_000, preciseCoords))],
+    ['Aldi', timedStoreSearch('Aldi', searchAldiWithTimeout(query, zipcode, 15_000))],
+    ['Albertsons', timedStoreSearch('Albertsons', searchAlbertsonsWithTimeout(query, zipcode, 15_000, preciseCoords))],
+    ['Harris Teeter', timedStoreSearch('Harris Teeter', searchHarrisTeeterWithTimeout(query, zipcode, 15_000, preciseCoords))],
+    ['Tom Thumb', timedStoreSearch('Tom Thumb', searchTomThumbWithTimeout(query, zipcode, 15_000, preciseCoords))],
+    ['Whole Foods Market', timedStoreSearch('Whole Foods Market', searchWholeFoodsWithTimeout(query, zipcode, 15_000, preciseCoords))],
+    ['Publix', timedStoreSearch('Publix', searchPublixWithTimeout(query, zipcode, 15_000, preciseCoords))],
   ];
 
   for (const [store, promise] of storeCalls) {
     promise.then(
       (raw) => {
-        const products = filterAndRankStoreProducts(store, raw, query, rawQuery, searchId);
-        session.storeState.set(store, { status: 'success', products });
+        const products = classifyStoreProducts(store, raw, query, rawQuery, searchId);
+        const status: SessionStoreState['status'] =
+          products.length === 0 && UNAVAILABLE_STORES.has(store) ? 'unavailable' : 'success';
+        session.storeState.set(store, { status, products });
       },
       (err) => {
         console.warn(`[Search] ${store} error:`, err);
@@ -844,13 +921,15 @@ export async function startProgressiveSearch(
     );
   }
 
-  const firstSettled = Promise.race(storeCalls.map(([, p]) => p.then(() => undefined, () => undefined)));
-  // Cleared as soon as the race settles either way — in the common case
-  // (some store finishes well under budget), `firstSettled` wins and this
-  // timer would otherwise sit in Node's timer table doing nothing for the
-  // rest of the budget window on every single search. Same "clear on early
-  // settle" fix already applied to raceAgainstResponseBudget's own timer
-  // above, for the same reason.
+  // Excludes UNAVAILABLE_STORES (Albertsons, Tom Thumb) — they resolve
+  // near-instantly with an empty array (no real network call), so left in
+  // the race, one of them would trivially "win" as the first-settled store
+  // on every single search, making this function return in milliseconds
+  // with EVERY real store still 'pending' and zero products — technically
+  // honoring "return on first settle," but defeating the entire point of
+  // it (showing a shopper their first REAL result as soon as it's ready).
+  const raceableStoreCalls = storeCalls.filter(([store]) => !UNAVAILABLE_STORES.has(store));
+  const firstSettled = Promise.race(raceableStoreCalls.map(([, p]) => p.then(() => undefined, () => undefined)));
   let budgetTimer: ReturnType<typeof setTimeout>;
   const budgetElapsed = new Promise<void>(resolve => {
     budgetTimer = setTimeout(resolve, SEARCH_RESPONSE_BUDGET_MS);
@@ -863,6 +942,7 @@ export async function startProgressiveSearch(
     success: response.storeStatuses.filter(s => s.status === 'success').length,
     pending: response.storeStatuses.filter(s => s.status === 'pending').length,
     error: response.storeStatuses.filter(s => s.status === 'error').length,
+    unavailable: response.storeStatuses.filter(s => s.status === 'unavailable').length,
   };
   perfLog('search:request-complete', {
     query,
@@ -871,7 +951,6 @@ export async function startProgressiveSearch(
     productCount: response.products.length,
     pendingStores: response.storeStatuses.filter(s => s.status === 'pending').map(s => s.store),
     storeSummary,
-    warmupStatus,
     searchId,
     mode: 'progressive',
   });

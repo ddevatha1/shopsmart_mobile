@@ -14,14 +14,20 @@
  * it off (or, via warmupService.ts's own `inFlight` dedup, reuses an
  * already-running cycle) fully in the background; this handler's only job
  * is reporting the CURRENT real readiness state, synchronously, right
- * away.
+ * away. A second, real bug this used to have on top of that: once a
+ * cycle completed, the very next call would restart a brand new one from
+ * scratch — see warmupService.ts's own `READY_COOLDOWN_MS`.
  */
 import type { Request, Response } from 'express';
 import { ensureWarmupStarted, getBackendReadiness } from '../services/warmupService.ts';
+import { getStoreStatus } from '../services/storeReadiness.ts';
+import { perfLog } from '../utils/perfLog.ts';
 
 export function handleWarmup(req: Request, res: Response): void {
+  const receivedAt = Date.now();
   const body = req.body as { zipcode?: string };
   const zipcode = body.zipcode?.trim();
+  perfLog('warmup:request-received', { zipcode });
 
   if (zipcode && !/^\d{5}$/.test(zipcode)) {
     res.status(400).json({ error: '`zipcode` must be a 5-digit US zip code.' });
@@ -43,5 +49,11 @@ export function handleWarmup(req: Request, res: Response): void {
     uptimeMs: readiness.uptimeMs,
     zipcode,
     stores: readiness.lastResult?.stores,
+    // Per-store ready/warming state (storeReadiness.ts) — independent of
+    // `status` above, which only reflects whether a whole warm-up CYCLE has
+    // run. A shopper's client can use this to show which specific store is
+    // still bootstrapping rather than just "ready" or not.
+    storeStatus: getStoreStatus(),
   });
+  perfLog('warmup:response-sent', { zipcode, status: readiness.status, handlerMs: Date.now() - receivedAt });
 }

@@ -1,0 +1,33 @@
+{
+    "storeId": 10819,
+    "token": "mck",
+    "displayName": "McKinney",
+    "status": "Open",
+    "phone": null,
+    "storePrimeEligibility": true,
+    "storeOperationalGuidance": null,
+    "bu": 10819,
+    "folder": "mck",
+    "openedAt": "2025-09-10",
+    "links": {
+        "Details": "/stores/mck",
+        "Directions": "https://www.google.com/maps/dir/?api=1&destination=33.21731,-96.73206",
+        "Sales": "/sales-flyer?store-id=10819",
+        "PrimeNowPickUpAndDelivery": "https://www.wholefoods.com/grocery?ref_=US_TRF_ALL_UFG_WFM_REFER_0417726"
+    },
+    "primaryLocation": {
+        "address": {
+            "STREET_ADDRESS_LINE1": "8701 W University Dr.",
+            "CITY": "McKinney",
+            "STATE": "TX",
+            "POSTAL_CODE": "75071-3324",
+            "ZIP_CODE": "75071-3324",
+            "COUNTRY": "United States of America"
+        },
+        "latitude": 33.21731,
+        "longitude": -96.73206
+    },
+    "operationalHoursJson": "[]",
+    "timezone": "America/Chicago",
+    "holidays": null
+}

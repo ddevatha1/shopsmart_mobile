@@ -35,7 +35,11 @@ import { perfLog } from '../utils/perfLog.ts';
 // convention as searchService.ts) — derived locally instead.
 type StoreName = ApiProduct['store'];
 
-const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi'];
+// Excludes Albertsons and Tom Thumb — neither has a live product data
+// source yet (see albertsonsLiveScraper.ts/tomThumbLiveScraper.ts), so
+// there's never anything for the planner to actually assign to them; only
+// stores searchService.ts can return real products for belong here.
+export const ALL_STORES: StoreName[] = ["Trader Joe's", 'Sprouts', 'Kroger', 'Aldi', 'Harris Teeter', 'Whole Foods Market', 'Publix'];
 
 // ~25 mpg average vehicle, ~$3.50/gal — a documented, clearly-labeled
 // approximation, not a real per-trip fuel measurement.

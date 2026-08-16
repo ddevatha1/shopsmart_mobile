@@ -43,7 +43,7 @@ function fakeTripPlan(): TripPlan {
 function fakeAssignment(store: StoreName, itemCount: number, subtotal: number): PlanStoreAssignment {
   return {
     store,
-    location: { name: store, address: '1 Main St', city: 'Springfield', state: 'TX', zip: '78701' },
+    location: { name: store, address: '1 Main St', city: 'Springfield', state: 'TX', zip: '78701', source: 'test-fixture' },
     items: Array.from({ length: itemCount }, (_, i) => ({
       listItemId: `${store}-${i}`,
       rawText: `item ${i}`,

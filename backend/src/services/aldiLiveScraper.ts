@@ -35,6 +35,7 @@ import { withTimeout } from '../utils/withTimeout.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { dedupeInFlight } from '../utils/dedupeInFlight.ts';
 import { createAldiLocator } from './locators/aldiLocator.ts';
+import { markStoreReady, markStoreWarming, logSearchUsedColdPath } from './storeReadiness.ts';
 
 const ALDI_HOME_URL = 'https://www.aldi.us/';
 const ALDI_GRAPHQL_URL = 'https://www.aldi.us/graphql';
@@ -74,16 +75,20 @@ async function establishAldiSession(): Promise<string> {
 // instead of each establishing their own.
 async function getAldiSessionCookie(forceRefresh = false): Promise<string> {
   if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+    markStoreReady('aldi');
     return sessionCache.cookie;
   }
 
+  markStoreWarming('aldi');
   return dedupeInFlight('aldi-session', async () => {
     if (!forceRefresh && sessionCache && Date.now() < sessionCache.expiresAt) {
+      markStoreReady('aldi');
       return sessionCache.cookie;
     }
     console.log('[Aldi] Establishing a fresh anonymous session...');
     const cookie = await establishAldiSession();
     sessionCache = { cookie, expiresAt: Date.now() + SESSION_REUSE_MS };
+    markStoreReady('aldi');
     console.log('[Aldi] Session established.');
     return cookie;
   });
@@ -175,9 +180,39 @@ export function normalizeAldiProduct(item: AldiItem, location?: StoreLocation): 
 // Product items live inside whichever placements are item grids/carousels —
 // checking for a populated `items` array is simpler and more robust than
 // filtering on the placement's __typename.
+//
+// Root cause of a real duplicate-React-key bug on the client (two product
+// cards both keyed "aldi-16614400"): Aldi's search response routinely
+// features the SAME product in more than one placement at once (e.g. a
+// "Popular Items" carousel AND the main results grid both carrying the
+// same item) — `flatMap` over every placement's items, with no dedup,
+// handed that same productId/id back to the caller twice, which
+// `normalizeAldiProduct` (below) then turns into two `ApiProduct`s with
+// the identical `id`. Deduped here, at the actual source of the
+// duplication, by whichever of `productId`/`id` a given item carries —
+// the same identity `normalizeAldiProduct` derives its own `id` from —
+// so this store's search results can never contain the same product
+// twice, not just here but for every client that calls this scraper.
 export function extractItemsFromPlacements(placements: AldiPlacement[] | undefined): AldiItem[] {
   if (!placements) return [];
-  return placements.flatMap(p => (Array.isArray(p.content?.items) ? p.content.items : []));
+  const allItems = placements.flatMap(p => (Array.isArray(p.content?.items) ? p.content.items : []));
+
+  const seen = new Set<string>();
+  const deduped: AldiItem[] = [];
+  for (const item of allItems) {
+    const identity = item.productId ?? item.id;
+    // An item with neither field can't be deduped meaningfully — kept as-is
+    // (normalizeAldiProduct falls back to the product name for its own id
+    // in that case, which is the best available signal).
+    if (!identity) {
+      deduped.push(item);
+      continue;
+    }
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    deduped.push(item);
+  }
+  return deduped;
 }
 
 async function fetchSearchResults(
@@ -260,7 +295,13 @@ export async function searchAldi(
 
   console.log(`[Aldi] Live fetch for "${query}" @ postal ${postalCode}, shop ${shopId} (${storeLocation.name})`);
 
+  // Cheap enough (a plain HTTP GET) to bootstrap inline if warm-up hasn't
+  // already done it — unlike Trader Joe's, never worth skipping the store
+  // over. Logged purely for cold-start observability.
+  const hadWarmSession = sessionCache !== null && Date.now() < sessionCache.expiresAt;
+  const sessionStart = Date.now();
   let sessionCookie = await getAldiSessionCookie();
+  if (!hadWarmSession) logSearchUsedColdPath('aldi', Date.now() - sessionStart);
   let json = await fetchSearchResults(query, postalCode, shopId, zoneId, sessionCookie);
 
   // Self-heal once: a cached session can go stale between requests even

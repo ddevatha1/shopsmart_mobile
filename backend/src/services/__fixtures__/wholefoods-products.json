@@ -1,0 +1,702 @@
+[
+  {
+    "brandName": "Fresh Produce (Brands May Vary)",
+    "name": "Organic Banana, 1 Each",
+    "asin": "B0787Y4V6T",
+    "programType": "GROCERY",
+    "description": "Produce",
+    "about": [
+      "Selected and stored fresh",
+      "Sourced with high quality standards",
+      "Recommended to wash before consuming",
+      "Delicious on their own as a healthy snack or as part of a recipe",
+      "Bananas are sold individually, not by the bunch"
+    ],
+    "snapEbt": "SNAP EBT eligible",
+    "productImages": [
+      "https://m.media-amazon.com/images/I/510oT5isyVL.jpg"
+    ],
+    "availability": "IN_STOCK",
+    "ingredients": "Organic Bananas",
+    "pdpType": "STANDARD",
+    "reheatingTag": null,
+    "reheatingInstructions": null,
+    "variationsList": null,
+    "bundleDetails": null,
+    "offerDetails": {
+      "price": {
+        "currencyCode": "USD",
+        "priceAmount": 0.79,
+        "basisPriceAmount": null,
+        "savings": {
+          "currencyCode": null,
+          "savingsAmount": null,
+          "percentSavings": null
+        },
+        "primeBenefit": {
+          "isApplied": null,
+          "text": null,
+          "currencyCode": null,
+          "priceAmount": null,
+          "savingsAmount": null
+        }
+      },
+      "unitPrice": {
+        "baseUnit": "each",
+        "currencyCode": "USD",
+        "priceAmount": 0.29
+      },
+      "offerListingId": "NOINLHqHDCiukbyD9BEaz6euBxviTKJAfyfRMU90UJzrPKk6uD4Jz0Em%2BLFrnJLwrinqihDcy16UfIAgOuqFnagM6Z5%2BFfUkzZoTVgoby9vWPsHsaLElC1cuguiRE%2FB8xR4lK61ujJmpPgrYfu3U2SMwLisN3KC3gm4zrw4W7Ew21GT%2FqcHQtrLyoKEec8I4b4OvZp10XmY%3D",
+      "maxOrderQuantity": 1416,
+      "isMaxQuantityRestricted": true
+    },
+    "nutritionFacts": null,
+    "variableUnitOfMeasure": {
+      "pricingUom": {
+        "dimension": "WEIGHT",
+        "unit": "POUNDS"
+      },
+      "sellingUom": {
+        "dimension": "COUNT",
+        "unit": "UNITS"
+      },
+      "selectorItemList": [
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 0.29
+          },
+          "selectorSellingQuantityString": "1",
+          "selectorSellingQuantityValue": 1
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 0.58
+          },
+          "selectorSellingQuantityString": "2",
+          "selectorSellingQuantityValue": 2
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 0.88
+          },
+          "selectorSellingQuantityString": "3",
+          "selectorSellingQuantityValue": 3
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 1.17
+          },
+          "selectorSellingQuantityString": "4",
+          "selectorSellingQuantityValue": 4
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 1.46
+          },
+          "selectorSellingQuantityString": "5",
+          "selectorSellingQuantityValue": 5
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 1.75
+          },
+          "selectorSellingQuantityString": "6",
+          "selectorSellingQuantityValue": 6
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 2.05
+          },
+          "selectorSellingQuantityString": "7",
+          "selectorSellingQuantityValue": 7
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 2.34
+          },
+          "selectorSellingQuantityString": "8",
+          "selectorSellingQuantityValue": 8
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 2.63
+          },
+          "selectorSellingQuantityString": "9",
+          "selectorSellingQuantityValue": 9
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 2.92
+          },
+          "selectorSellingQuantityString": "10",
+          "selectorSellingQuantityValue": 10
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 3.22
+          },
+          "selectorSellingQuantityString": "11",
+          "selectorSellingQuantityValue": 11
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 3.51
+          },
+          "selectorSellingQuantityString": "12",
+          "selectorSellingQuantityValue": 12
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 3.8
+          },
+          "selectorSellingQuantityString": "13",
+          "selectorSellingQuantityValue": 13
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 4.09
+          },
+          "selectorSellingQuantityString": "14",
+          "selectorSellingQuantityValue": 14
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 4.38
+          },
+          "selectorSellingQuantityString": "15",
+          "selectorSellingQuantityValue": 15
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 4.68
+          },
+          "selectorSellingQuantityString": "16",
+          "selectorSellingQuantityValue": 16
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 4.97
+          },
+          "selectorSellingQuantityString": "17",
+          "selectorSellingQuantityValue": 17
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 5.26
+          },
+          "selectorSellingQuantityString": "18",
+          "selectorSellingQuantityValue": 18
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 5.55
+          },
+          "selectorSellingQuantityString": "19",
+          "selectorSellingQuantityValue": 19
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 5.85
+          },
+          "selectorSellingQuantityString": "20",
+          "selectorSellingQuantityValue": 20
+        }
+      ]
+    },
+    "cookingTag": null,
+    "ctaTag": "UNRECOGNIZED_SIGN_IN",
+    "seasonalHolidayBadge": null,
+    "pastInteractionsBadge": null,
+    "bestSellerBadge": null,
+    "dietTypes": [],
+    "deliveryPromiseHtml": "",
+    "category": {
+      "productType": "FRUIT",
+      "glProductGroupSymbol": "gl_fresh_produce",
+      "displayName": "Beauty"
+    }
+  },
+  {
+    "brandName": "Fresh Produce (Brands May Vary)",
+    "name": "Organic Blueberries Pint",
+    "asin": "B077N7TR5G",
+    "programType": "GROCERY",
+    "description": "Native to North America, this sweet-tart berry's powerful antioxidant properties make it a superfood.",
+    "about": [
+      "Recommended to wash before consuming",
+      "Grown in United States, Argentina, Mexico, Uruguay, Chile, Peru, or Canada",
+      "Delicious on their own as a healthy snack or as part of a recipe",
+      "Sourced with high quality standards",
+      "Refrigerate immediately for maximum shelf life and flavor",
+      "Certified Organic"
+    ],
+    "snapEbt": "SNAP EBT eligible",
+    "productImages": [
+      "https://m.media-amazon.com/images/I/71PK6BOLxCL.jpg",
+      "https://m.media-amazon.com/images/I/316XoJJFAlL.jpg"
+    ],
+    "availability": "IN_STOCK",
+    "ingredients": "Fresh, Organic Blueberries",
+    "pdpType": "STANDARD",
+    "reheatingTag": null,
+    "reheatingInstructions": null,
+    "variationsList": null,
+    "bundleDetails": null,
+    "offerDetails": {
+      "price": {
+        "currencyCode": "USD",
+        "priceAmount": 5.54,
+        "basisPriceAmount": 5.99,
+        "savings": {
+          "currencyCode": "USD",
+          "savingsAmount": 0.45,
+          "percentSavings": "8%"
+        },
+        "primeBenefit": {
+          "isApplied": false,
+          "text": "Join Prime to buy this item at ",
+          "currencyCode": "USD",
+          "priceAmount": 4.99,
+          "savingsAmount": 0.55
+        }
+      },
+      "unitPrice": {
+        "baseUnit": "lb",
+        "currencyCode": "USD",
+        "priceAmount": 7.39
+      },
+      "offerListingId": "MhIa9C%2BSK0BUzKivo8nIV4vQk8Wq3AGDzYLy7UeH9RRDymRzN8LLbbBRPTjSHVy0OH07IabMtfvyQY9FySdptYO%2BtJ%2Fo2kPQU94RbWs4sn5hSrsyeqakFwCYl6IZuRlqLpxOEd10cYhGFy30CBC0BNZXZXyvmVfa7hOztDOJx2jE37i7ItUOAI9dPFjIP1KqGyrBrDOjW7o%3D",
+      "maxOrderQuantity": 82,
+      "isMaxQuantityRestricted": true
+    },
+    "nutritionFacts": {
+      "caloriesAmount": "84",
+      "servingsPerContainer": "2.0 servings per container",
+      "servingSize": "1.0 cup",
+      "macronutrients": [
+        {
+          "name": "Total Fat",
+          "amount": "0.49g",
+          "percent": "0.63%",
+          "level": "TOP"
+        },
+        {
+          "name": "Saturated Fat",
+          "amount": "0.04g",
+          "percent": "0.2%",
+          "level": "SUB"
+        },
+        {
+          "name": "Trans Fat",
+          "amount": "0g",
+          "percent": "",
+          "level": "SUB"
+        },
+        {
+          "name": "Cholesterol",
+          "amount": "0mg",
+          "percent": "0%",
+          "level": "TOP"
+        },
+        {
+          "name": "Sodium",
+          "amount": "1.5mg",
+          "percent": "",
+          "level": "TOP"
+        },
+        {
+          "name": "Total Carbohydrate",
+          "amount": "21g",
+          "percent": "7.64%",
+          "level": "TOP"
+        },
+        {
+          "name": "Dietary Fiber",
+          "amount": "3.6g",
+          "percent": "12.86%",
+          "level": "SUB"
+        },
+        {
+          "name": "Sugars",
+          "amount": "14.741g",
+          "percent": "",
+          "level": "SUB"
+        },
+        {
+          "name": "Protein",
+          "amount": "1.095g",
+          "percent": "",
+          "level": "TOP"
+        }
+      ],
+      "vitaminsAndMinerals": [
+        {
+          "name": "Vitamin A",
+          "amount": "80mg",
+          "percent": "8%",
+          "level": "TOP"
+        },
+        {
+          "name": "Vitamin C",
+          "amount": "14mg",
+          "percent": "15%",
+          "level": "TOP"
+        },
+        {
+          "name": "Calcium",
+          "amount": "8.88mg",
+          "percent": "0%",
+          "level": "TOP"
+        },
+        {
+          "name": "Iron",
+          "amount": "0.41mg",
+          "percent": "2%",
+          "level": "TOP"
+        },
+        {
+          "name": "Potassium",
+          "amount": "114mg",
+          "percent": "2%",
+          "level": "TOP"
+        }
+      ]
+    },
+    "variableUnitOfMeasure": {
+      "pricingUom": {
+        "dimension": "COUNT",
+        "unit": "UNITS"
+      },
+      "sellingUom": {
+        "dimension": "COUNT",
+        "unit": "UNITS"
+      },
+      "selectorItemList": [
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 5.54
+          },
+          "selectorSellingQuantityString": "1",
+          "selectorSellingQuantityValue": 1
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 11.08
+          },
+          "selectorSellingQuantityString": "2",
+          "selectorSellingQuantityValue": 2
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 16.62
+          },
+          "selectorSellingQuantityString": "3",
+          "selectorSellingQuantityValue": 3
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 22.16
+          },
+          "selectorSellingQuantityString": "4",
+          "selectorSellingQuantityValue": 4
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 27.7
+          },
+          "selectorSellingQuantityString": "5",
+          "selectorSellingQuantityValue": 5
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 33.24
+          },
+          "selectorSellingQuantityString": "6",
+          "selectorSellingQuantityValue": 6
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 38.78
+          },
+          "selectorSellingQuantityString": "7",
+          "selectorSellingQuantityValue": 7
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 44.32
+          },
+          "selectorSellingQuantityString": "8",
+          "selectorSellingQuantityValue": 8
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 49.86
+          },
+          "selectorSellingQuantityString": "9",
+          "selectorSellingQuantityValue": 9
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 55.4
+          },
+          "selectorSellingQuantityString": "10",
+          "selectorSellingQuantityValue": 10
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 60.94
+          },
+          "selectorSellingQuantityString": "11",
+          "selectorSellingQuantityValue": 11
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 66.48
+          },
+          "selectorSellingQuantityString": "12",
+          "selectorSellingQuantityValue": 12
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 72.02
+          },
+          "selectorSellingQuantityString": "13",
+          "selectorSellingQuantityValue": 13
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 77.56
+          },
+          "selectorSellingQuantityString": "14",
+          "selectorSellingQuantityValue": 14
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 83.1
+          },
+          "selectorSellingQuantityString": "15",
+          "selectorSellingQuantityValue": 15
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 88.64
+          },
+          "selectorSellingQuantityString": "16",
+          "selectorSellingQuantityValue": 16
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 94.18
+          },
+          "selectorSellingQuantityString": "17",
+          "selectorSellingQuantityValue": 17
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 99.72
+          },
+          "selectorSellingQuantityString": "18",
+          "selectorSellingQuantityValue": 18
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 105.26
+          },
+          "selectorSellingQuantityString": "19",
+          "selectorSellingQuantityValue": 19
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 110.8
+          },
+          "selectorSellingQuantityString": "20",
+          "selectorSellingQuantityValue": 20
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 116.34
+          },
+          "selectorSellingQuantityString": "21",
+          "selectorSellingQuantityValue": 21
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 121.88
+          },
+          "selectorSellingQuantityString": "22",
+          "selectorSellingQuantityValue": 22
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 127.42
+          },
+          "selectorSellingQuantityString": "23",
+          "selectorSellingQuantityValue": 23
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 132.96
+          },
+          "selectorSellingQuantityString": "24",
+          "selectorSellingQuantityValue": 24
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 138.5
+          },
+          "selectorSellingQuantityString": "25",
+          "selectorSellingQuantityValue": 25
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 144.04
+          },
+          "selectorSellingQuantityString": "26",
+          "selectorSellingQuantityValue": 26
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 149.58
+          },
+          "selectorSellingQuantityString": "27",
+          "selectorSellingQuantityValue": 27
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 155.12
+          },
+          "selectorSellingQuantityString": "28",
+          "selectorSellingQuantityValue": 28
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 160.66
+          },
+          "selectorSellingQuantityString": "29",
+          "selectorSellingQuantityValue": 29
+        },
+        {
+          "selectorPrice": {
+            "baseUnit": null,
+            "currencyCode": "USD",
+            "priceAmount": 166.2
+          },
+          "selectorSellingQuantityString": "30",
+          "selectorSellingQuantityValue": 30
+        }
+      ]
+    },
+    "cookingTag": null,
+    "ctaTag": "UNRECOGNIZED_SIGN_IN",
+    "seasonalHolidayBadge": null,
+    "pastInteractionsBadge": null,
+    "bestSellerBadge": null,
+    "dietTypes": [
+      "kosher"
+    ],
+    "deliveryPromiseHtml": "",
+    "category": {
+      "productType": "FRUIT",
+      "glProductGroupSymbol": "gl_fresh_produce",
+      "displayName": "Grocery"
+    }
+  }
+]

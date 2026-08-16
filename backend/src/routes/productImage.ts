@@ -29,16 +29,25 @@
  *     that's actually the same product, or nothing."
  */
 import type { Request, Response } from 'express';
+import type { NutritionAttributes } from '../types/index.ts';
 import { hasDifferentHeadNoun, tokenizeName } from '../services/searchService.ts';
 import { fetchSproutsProductImage } from '../services/sproutsLiveScraper.ts';
 import { TtlCache } from '../utils/ttlCache.ts';
 import { withTimeout } from '../utils/withTimeout.ts';
 
-// Product photos essentially never change, so this is really "cache
-// forever, but bounded so the process doesn't grow unboundedly across a
-// long-lived deploy" — 30 days comfortably outlives most deploy cycles.
+// Product photos (and, now, nutrition facts) essentially never change, so
+// this is really "cache forever, but bounded so the process doesn't grow
+// unboundedly across a long-lived deploy" — 30 days comfortably outlives
+// most deploy cycles.
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const imageCache = new TtlCache<string | null>(CACHE_TTL_MS);
+interface ProductImageResult {
+  imageUrl: string | null;
+  /** Only ever populated via the Open Food Facts path below — the
+   * per-store scrape path (Sprouts) supplies an image but no nutrition
+   * data, so this stays undefined for results found that way. */
+  nutrition?: NutritionAttributes;
+}
+const imageCache = new TtlCache<ProductImageResult>(CACHE_TTL_MS);
 
 // Registry of per-store product-page scrapers — only Sprouts today,
 // because that's the only store this app has actually observed missing
@@ -52,18 +61,81 @@ const STORE_IMAGE_SCRAPERS: Record<string, (url: string, name: string) => Promis
 const USER_AGENT = 'ShopSmartMobile/1.0 (grocery price comparison app)';
 const FETCH_TIMEOUT_MS = 5000;
 
-interface OpenFoodFactsProduct {
+/** Only the fields this app actually reads out of Open Food Facts' full
+ * product record — the real response includes dozens more (ingredients
+ * breakdown, packaging, allergens, additives, ...) that this app has no
+ * use for and must never forward to the client. Nutrient fields are named
+ * `_100g` because that's the one basis OFF reliably reports across
+ * products regardless of the product's own serving size. */
+export interface OpenFoodFactsNutriments {
+  'energy-kcal_100g'?: number;
+  proteins_100g?: number;
+  fat_100g?: number;
+  carbohydrates_100g?: number;
+  fiber_100g?: number;
+  sugars_100g?: number;
+  /** OFF reports sodium in grams per 100g, not milligrams — converted in
+   * extractNutrition. */
+  sodium_100g?: number;
+}
+
+export interface OpenFoodFactsProduct {
   product_name?: string;
   brands?: string;
   image_front_url?: string;
   image_url?: string;
+  nutriments?: OpenFoodFactsNutriments;
+  nutriscore_grade?: string;
 }
 
 interface OpenFoodFactsResponse {
   products?: OpenFoodFactsProduct[];
 }
 
-async function lookupOpenFoodFacts(productName: string): Promise<string | null> {
+const NUTRISCORE_GRADES = new Set(['a', 'b', 'c', 'd', 'e']);
+
+/** Pulls the minimal `NutritionAttributes` shape (see types/index.ts) out
+ * of one Open Food Facts product record — the only place this app reads
+ * `nutriments`/`nutriscore_grade` at all. Returns `undefined` when the
+ * record has neither (nothing to attach at all) rather than an
+ * all-empty object, so callers can tell "no data" from "all zero."
+ *
+ * `completeness` is computed here, once, rather than left for every
+ * future consumer (Healthiest mode, the Nutrition Assistant, ...) to
+ * re-derive from field presence itself — `'complete'` requires every one
+ * of the seven numeric fields; a real OFF record missing even one of
+ * them (extremely common) is honestly `'partial'`, never rounded up. */
+export function extractNutrition(product: OpenFoodFactsProduct): NutritionAttributes | undefined {
+  const n = product.nutriments;
+  const grade = product.nutriscore_grade?.toLowerCase();
+  const nutriScore = grade && NUTRISCORE_GRADES.has(grade) ? (grade as NutritionAttributes['nutriScore']) : undefined;
+
+  const caloriesPer100g = n?.['energy-kcal_100g'];
+  const proteinGPer100g = n?.proteins_100g;
+  const carbsGPer100g = n?.carbohydrates_100g;
+  const fatGPer100g = n?.fat_100g;
+  const fiberGPer100g = n?.fiber_100g;
+  const sugarGPer100g = n?.sugars_100g;
+  const sodiumMgPer100g = n?.sodium_100g != null ? n.sodium_100g * 1000 : undefined;
+
+  const macroFields = [caloriesPer100g, proteinGPer100g, carbsGPer100g, fatGPer100g, fiberGPer100g, sugarGPer100g, sodiumMgPer100g];
+  if (macroFields.every(v => v == null) && !nutriScore) return undefined;
+
+  return {
+    ...(caloriesPer100g != null && { caloriesPer100g }),
+    ...(proteinGPer100g != null && { proteinGPer100g }),
+    ...(carbsGPer100g != null && { carbsGPer100g }),
+    ...(fatGPer100g != null && { fatGPer100g }),
+    ...(fiberGPer100g != null && { fiberGPer100g }),
+    ...(sugarGPer100g != null && { sugarGPer100g }),
+    ...(sodiumMgPer100g != null && { sodiumMgPer100g }),
+    ...(nutriScore && { nutriScore }),
+    source: 'open_food_facts',
+    completeness: macroFields.every(v => v != null) ? 'complete' : 'partial',
+  };
+}
+
+async function lookupOpenFoodFacts(productName: string): Promise<{ imageUrl: string | null; nutrition?: NutritionAttributes }> {
   const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(productName)}&search_simple=1&action=process&json=1&page_size=8`;
 
   const res = await withTimeout(
@@ -88,10 +160,45 @@ async function lookupOpenFoodFacts(productName: string): Promise<string | null> 
     // perspective (wrong flavor base, wrong product type entirely, ...).
     if (hasDifferentHeadNoun(queryWords, candidateWords)) continue;
 
-    return imageUrl;
+    return { imageUrl, nutrition: extractNutrition(product) };
   }
 
-  return null;
+  return { imageUrl: null };
+}
+
+/**
+ * Best-effort nutrition lookup by product name alone — reused by
+ * searchService.ts's search-time enrichment step (see
+ * `enrichDirectMatchesWithNutrition`) so a name already resolved via a
+ * prior /api/product-image call, or a prior search, is never looked up
+ * twice. Deliberately the same cache this route's own handler reads/
+ * writes (keyed the same way: `name.toLowerCase()`, no `storeProductUrl`
+ * — that keying only ever applies to the store-page scrape path, which
+ * never produces nutrition anyway).
+ *
+ * Imported by searchService.ts via a dynamic `import()` rather than a
+ * static one — this file already imports from searchService.ts
+ * (`hasDifferentHeadNoun`/`tokenizeName`), so a static import in the
+ * other direction would be a circular module dependency. A dynamic
+ * import resolves after both modules have finished their initial
+ * evaluation, which sidesteps that entirely; the cost is negligible
+ * (Node caches the resolved module after the first call).
+ */
+export async function getCachedOrFetchNutrition(productName: string): Promise<NutritionAttributes | undefined> {
+  const cacheKey = productName.toLowerCase();
+  const cached = imageCache.get(cacheKey);
+  if (cached !== undefined) return cached.nutrition;
+
+  try {
+    const result = await lookupOpenFoodFacts(productName);
+    imageCache.set(cacheKey, result);
+    return result.nutrition;
+  } catch (err) {
+    console.warn('[ProductImage] nutrition lookup failed:', err);
+    // Not cached — a transient failure shouldn't permanently stick as
+    // "no nutrition," same reasoning as handleProductImage's own catch.
+    return undefined;
+  }
 }
 
 export async function handleProductImage(req: Request, res: Response): Promise<void> {
@@ -111,17 +218,23 @@ export async function handleProductImage(req: Request, res: Response): Promise<v
   const cacheKey = storeProductUrl ? `url:${storeProductUrl}` : name.toLowerCase();
   const cached = imageCache.get(cacheKey);
   if (cached !== undefined) {
-    res.json({ imageUrl: cached });
+    res.json(cached);
     return;
   }
 
   const storeScraper = store ? STORE_IMAGE_SCRAPERS[store] : undefined;
   if (storeScraper && storeProductUrl) {
     try {
-      const scraped = await storeScraper(storeProductUrl, name);
+      // Browser-backed (Playwright) — bounded so a stuck/slow launch or
+      // page load degrades to the Open Food Facts fallback below instead
+      // of hanging this request indefinitely.
+      const scraped = await withTimeout(storeScraper(storeProductUrl, name), 30_000, `${store} product-image scrape`);
       if (scraped) {
-        imageCache.set(cacheKey, scraped);
-        res.json({ imageUrl: scraped });
+        // The store-page scrape only ever returns an image — no
+        // nutrition data source on this path (see ProductImageResult).
+        const result: ProductImageResult = { imageUrl: scraped };
+        imageCache.set(cacheKey, result);
+        res.json(result);
         return;
       }
     } catch (err) {
@@ -129,9 +242,9 @@ export async function handleProductImage(req: Request, res: Response): Promise<v
     }
   }
 
-  let imageUrl: string | null;
+  let result: ProductImageResult;
   try {
-    imageUrl = await lookupOpenFoodFacts(name);
+    result = await lookupOpenFoodFacts(name);
   } catch (err) {
     console.warn('[ProductImage] lookup failed:', err);
     // A transient failure isn't cached as a permanent "no match" — only a
@@ -140,6 +253,6 @@ export async function handleProductImage(req: Request, res: Response): Promise<v
     return;
   }
 
-  imageCache.set(cacheKey, imageUrl);
-  res.json({ imageUrl });
+  imageCache.set(cacheKey, result);
+  res.json(result);
 }

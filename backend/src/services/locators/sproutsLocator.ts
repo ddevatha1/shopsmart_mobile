@@ -54,7 +54,7 @@ async function fetchPreciseCoords(storeNumber: string): Promise<{ latitude: numb
   try {
     const res = await withTimeout(
       fetch(`${SPROUTS_STORE_DETAIL_URL}/${storeNumber}`, {
-        headers: { 'User-Agent': 'ShopSmartMobile/1.0 (grocery price comparison app)' },
+        headers: { 'User-Agent': 'ShopAI/1.0 (grocery price comparison app)' },
       }),
       8000,
       'Sprouts store detail',
@@ -113,6 +113,8 @@ export function createSproutsLocator(getSessionCookie: () => Promise<string>): S
           zip: addr.postal_code,
           latitude: coords?.latitude,
           longitude: coords?.longitude,
+          source: 'sprouts-locator',
+          metadata: { shopId: nearest.id, storeNumber: nearest.location_code },
         };
 
         locationCache.set(zip, location);

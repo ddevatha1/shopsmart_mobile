@@ -144,6 +144,47 @@ test('extractItemsFromPlacements handles undefined placements safely', () => {
   assert.deepEqual(extractItemsFromPlacements(undefined), []);
 });
 
+// ── Cross-placement duplicate dedup — regression for a real client bug ──────
+// (React "two children with the same key" on `aldi-16614400`-style keys):
+// Aldi's real search response features the same product in more than one
+// placement (e.g. a "Popular" carousel AND the main results grid).
+
+test('a product repeated across two placements (same productId) is only returned once', () => {
+  const placements: AldiPlacement[] = [
+    { content: { items: [{ productId: '16614400', id: 'items_1-16614400', name: 'Bananas' }] } },
+    { content: { items: [{ productId: '16614400', id: 'items_1-16614400', name: 'Bananas' }] } },
+  ];
+  const items = extractItemsFromPlacements(placements);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].productId, '16614400');
+});
+
+test('dedup falls back to `id` when `productId` is absent', () => {
+  const placements: AldiPlacement[] = [
+    { content: { items: [{ id: 'items_1-16614400', name: 'Bananas' }] } },
+    { content: { items: [{ id: 'items_1-16614400', name: 'Bananas' }] } },
+  ];
+  const items = extractItemsFromPlacements(placements);
+  assert.equal(items.length, 1);
+});
+
+test('two genuinely different products (different productId) are both kept', () => {
+  const placements: AldiPlacement[] = [
+    { content: { items: [{ productId: '16614400', name: 'Bananas' }] } },
+    { content: { items: [{ productId: '99999999', name: 'Organic Bananas' }] } },
+  ];
+  const items = extractItemsFromPlacements(placements);
+  assert.equal(items.length, 2);
+});
+
+test('an item with neither productId nor id is kept as-is (nothing to dedup against)', () => {
+  const placements: AldiPlacement[] = [
+    { content: { items: [{ name: 'Mystery Item' }, { name: 'Mystery Item' }] } },
+  ];
+  const items = extractItemsFromPlacements(placements);
+  assert.equal(items.length, 2);
+});
+
 // ── searchAldi() configuration guards ────────────────────────────────────────
 // Note: store selection is resolved live via AldiLocator (see
 // locators/aldiLocator.ts), so it isn't covered by these fixture-only,

@@ -186,7 +186,7 @@ function SignedInProfile({ user }: { user: User }) {
         <TouchableOpacity style={styles.signOutButton} onPress={() => signOut()}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
-        <Text style={styles.footerTagline}>ShopSmart — Compare grocery prices across 4 stores</Text>
+        <Text style={styles.footerTagline}>ShopSmart — Compare grocery prices across 9 stores</Text>
       </View>
     </ScrollView>
   );

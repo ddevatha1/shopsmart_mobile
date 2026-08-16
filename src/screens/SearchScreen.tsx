@@ -458,7 +458,7 @@ function SearchHeader({
     <>
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>Compare grocery prices, instantly</Text>
-        <Text style={styles.heroSubtitle}>Search Trader Joe&apos;s, Sprouts, Kroger & Aldi near you.</Text>
+        <Text style={styles.heroSubtitle}>Search Trader Joe&apos;s, Sprouts, Kroger, Aldi, Whole Foods, Publix & more near you.</Text>
 
         <View style={styles.searchCard}>
           <TextInput
@@ -526,7 +526,7 @@ function SearchHeader({
               <Text style={styles.emptyText}>
                 {selectedStore
                   ? `Enter a product above to browse ${selectedStore}'s inventory.`
-                  : 'Enter a product above to compare prices across all four stores near you.'}
+                  : 'Enter a product above to compare prices across all your stores near you.'}
               </Text>
               {recentSearches.length === 0 && (
                 <View style={styles.suggestionRow}>

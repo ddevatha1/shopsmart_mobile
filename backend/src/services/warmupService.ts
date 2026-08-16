@@ -125,7 +125,7 @@ export interface WarmupResult {
   stores: WarmupStoreResult[];
 }
 
-interface WarmupTask {
+export interface WarmupTask {
   store: string;
   run: () => Promise<void>;
 }
@@ -177,18 +177,58 @@ function buildTasks(zipcode?: string): WarmupTask[] {
 // level down by each store's own module-level cache regardless.
 const inFlight = new Map<string, Promise<WarmupResult>>();
 
-export function runWarmup(zipcode?: string): Promise<WarmupResult> {
+// Below this age, a key that already reached 'ready' is treated as still
+// good rather than re-running the full warm-up pass again. Root cause of
+// a real, confirmed production bug this fixes: `inFlight`'s dedup above
+// only covers a cycle that's still genuinely running — the instant a
+// completed cycle's promise settles, it's removed from `inFlight` (see
+// the `.finally()` below), so the very next call to this function (the
+// client's own next /api/warmup poll, at whatever interval it polls on)
+// had nothing left to dedup against and unconditionally restarted a
+// brand new cycle, synchronously resetting `state.status` back to
+// 'warming' before that new cycle's own `.then()` could possibly run.
+// Because `getBackendReadiness` is read synchronously, in the same tick,
+// by the route that calls this (see routes/warmup.ts — never awaited),
+// every single poll observed the freshly-reset 'warming' state it had
+// itself just caused, no matter how many times a shopper's client polled
+// or how long the backend had genuinely been warm. Confirmed live: 10
+// consecutive polls against production, several seconds apart, each one
+// reporting `status: "warming"` — even though every store's own warm
+// function reported `ok: true` in single-digit milliseconds each time,
+// meaning there was no real warm-up work left to do at all. This cache
+// window is short and purely a debounce against back-to-back re-triggers
+// (a shopper's app backgrounding/reopening quickly, a component remount,
+// the client's own poll loop calling back in) — NOT a substitute for each
+// store's own freshness handling (Aldi/Sprouts' session-cookie reuse
+// window, Kroger's token expiry, ...), which is unconditionally
+// re-checked on every real search regardless of this flag. It only ever
+// gates how long a shopper's first search waits before proceeding.
+const READY_COOLDOWN_MS = 30_000;
+
+/** `tasksOverride` exists purely for testability (see this file's own
+ * warmAll doc comment on why runWarmup itself is otherwise untested here
+ * — it wires in the real Kroger/Aldi/Sprouts/Trader Joe's warm functions,
+ * which genuinely hit live network/credentials) — both real call sites
+ * (index.ts at boot, routes/warmup.ts per request) call this with a
+ * single `zipcode` argument, unchanged. */
+export function runWarmup(zipcode?: string, tasksOverride?: WarmupTask[]): Promise<WarmupResult> {
   const key = keyFor(zipcode);
   const existing = inFlight.get(key);
   if (existing) return existing;
 
   const state = getKeyState(key);
+
+  if (state.status === 'ready' && state.lastResult && Date.now() - state.lastResult.completedAt < READY_COOLDOWN_MS) {
+    perfLog('warmup:already-ready', { zipcode, ageMs: Date.now() - state.lastResult.completedAt });
+    return Promise.resolve(state.lastResult);
+  }
+
   state.status = 'warming';
 
   const startedAt = Date.now();
   perfLog('warmup:start', { zipcode });
 
-  const promise = warmAll(buildTasks(zipcode)).then((stores) => {
+  const promise = warmAll(tasksOverride ?? buildTasks(zipcode)).then((stores) => {
     const completedAt = Date.now();
     const result: WarmupResult = {
       startedAt,

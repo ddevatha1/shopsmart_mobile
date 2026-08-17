@@ -61,6 +61,27 @@ export function StoreStillSearchingState({ store }: { store: StoreName }) {
   );
 }
 
+/** The comparison-mode (all-stores) equivalent of StoreStillSearchingState
+ * above — shown in place of the real "No comparable products found" empty
+ * state whenever a search has zero results *so far* but one or more
+ * stores genuinely haven't finished yet (see SearchScreen.tsx's own
+ * comment on why this distinction matters: showing "not found" while a
+ * store is still in flight is a real, confirmed UX bug, not a stylistic
+ * choice). Deliberately never claims "not found" — only "not yet." */
+export function AllStoresStillSearchingState({ count }: { count: number }) {
+  return (
+    <View style={styles.singleStoreState}>
+      <View style={[styles.singleStoreIconBadge, { backgroundColor: colors.mint }]}>
+        <Ionicons name="search" size={22} color={colors.green} />
+      </View>
+      <Text style={styles.singleStoreTitle}>
+        Still searching {count} store{count !== 1 ? 's' : ''}…
+      </Text>
+      <Text style={styles.singleStoreSubtitle}>Results will appear here automatically.</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',

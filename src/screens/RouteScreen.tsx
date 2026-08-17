@@ -15,7 +15,8 @@ import Animated, {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCartStore } from '../store/cartStore';
 import { useSearchStore } from '../store/searchStore';
-import { useUserStore } from '../store/userStore';
+import { useGuestZipStore } from '../store/guestZipStore';
+import { GUEST_OWNER_KEY } from '../services/guestIdentity';
 import { useRouteStore } from '../store/routeStore';
 import { groupCartByStore, locationKey } from '../utils/groupCartByStore';
 import { planShoppingTrip } from '../services/tripService';
@@ -61,8 +62,8 @@ let hasSeenLocationPrompt = false;
 export function RouteScreen({ navigation }: Props) {
   const items = useCartStore((s) => s.items);
   const activeZip = useSearchStore((s) => s.activeZip);
-  const user = useUserStore((s) => s.user);
-  const zipcode = activeZip || user?.zipcode || '';
+  const guestZip = useGuestZipStore((s) => s.zipcode);
+  const zipcode = activeZip || guestZip || '';
 
   const { groups, itemsWithoutLocation } = useMemo(() => groupCartByStore(items), [items]);
   // Remounts TripLoader (and so its internal loading/error/trip state)
@@ -215,7 +216,7 @@ function TripLoader({ groups, zipcode, itemsWithoutLocation, totalProducts }: {
   // log — the only real "this left the store" signal this app has is the
   // shopper finishing a stop's own pickup checklist. Records once per
   // stop, the moment it flips to complete, never on every render.
-  const ownerEmail = useUserStore((s) => s.user?.email ?? '');
+  const ownerEmail = GUEST_OWNER_KEY;
   const recordedStops = useRef<Record<string, boolean>>({});
   useEffect(() => {
     if (!ownerEmail) return;

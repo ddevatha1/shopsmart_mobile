@@ -8,7 +8,8 @@ import { AnimatedPressable } from '../components/AnimatedPressable';
 import { SearchProgress } from '../components/SearchProgress';
 import { AmbiguityCard } from '../components/planner/AmbiguityCard';
 import { PlanResultsView } from '../components/planner/PlanResultsView';
-import { useUserStore } from '../store/userStore';
+import { useGuestZipStore } from '../store/guestZipStore';
+import { GUEST_OWNER_KEY } from '../services/guestIdentity';
 import { useCartStore } from '../store/cartStore';
 import { parseListInput, analyzeItems, applyAmbiguityAnswers } from '../services/plannerAmbiguityService';
 import { getAllPreferences, setPreference } from '../services/plannerPreferenceService';
@@ -34,44 +35,54 @@ const PLACEHOLDER = 'milk\neggs\nchicken\nbread\nbananas\nyogurt\ncereal';
  */
 export function PlannerScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const user = useUserStore(s => s.user);
   const setCart = useCartStore(s => s.setCart);
-  const zipcode = user?.zipcode ?? '';
 
   const [step, setStep] = useState<Step>('input');
   const [listText, setListText] = useState('');
   const [resolvedItems, setResolvedItems] = useState<PlannerListItem[]>([]);
+  const [resolvedZipcode, setResolvedZipcode] = useState('');
   const [prompts, setPrompts] = useState<AmbiguityPrompt[]>([]);
   const [answers, setAnswers] = useState<Record<string, string | null>>({});
   const [rememberChoices, setRememberChoices] = useState(true);
   const [plan, setPlan] = useState<ShoppingPlanResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const canSubmit = listText.trim().length > 0 && zipcode.length === 5;
+  const canSubmit = listText.trim().length > 0;
 
-  const runOptimization = useCallback(async (items: PlannerListItem[]) => {
+  const runOptimization = useCallback(async (items: PlannerListItem[], zip: string) => {
     setStep('loading');
     try {
-      const result = await generateShoppingPlan(items, zipcode);
+      const result = await generateShoppingPlan(items, zip);
       setPlan(result);
       setStep('results');
     } catch (err) {
       setErrorMessage(err instanceof ApiError ? err.message : 'Could not build a shopping plan.');
       setStep('error');
     }
-  }, [zipcode]);
+  }, []);
 
   const handleCreatePlan = async () => {
-    if (!canSubmit || !user) return;
+    if (!canSubmit) return;
+
+    // Resolves from a cached ZIP or, if unknown, triggers the native
+    // location permission flow (see guestZipStore.resolveZipcode) —
+    // there is no account/profile to source a ZIP from anymore.
+    const zip = await useGuestZipStore.getState().resolveZipcode();
+    if (!zip) {
+      setErrorMessage('We need your location to build a plan. Allow location access when prompted, or set your ZIP code in Settings.');
+      setStep('error');
+      return;
+    }
+    setResolvedZipcode(zip);
 
     const rawItems = parseListInput(listText);
-    const rememberedPrefs = await getAllPreferences(user.email);
+    const rememberedPrefs = await getAllPreferences(GUEST_OWNER_KEY);
     const { resolved, prompts: newPrompts } = analyzeItems(rawItems, rememberedPrefs);
 
     setResolvedItems(resolved);
 
     if (newPrompts.length === 0) {
-      await runOptimization(resolved);
+      await runOptimization(resolved, zip);
       return;
     }
 
@@ -88,10 +99,10 @@ export function PlannerScreen() {
     const finalItems = applyAmbiguityAnswers(resolvedItems, answers);
     setResolvedItems(finalItems);
 
-    if (user && rememberChoices) {
+    if (rememberChoices) {
       try {
         await Promise.all(
-          Object.entries(answers).map(([taxonomyEntryId, subtypeId]) => setPreference(user.email, taxonomyEntryId, subtypeId)),
+          Object.entries(answers).map(([taxonomyEntryId, subtypeId]) => setPreference(GUEST_OWNER_KEY, taxonomyEntryId, subtypeId)),
         );
       } catch (err) {
         console.warn('[PlannerScreen] failed to remember ambiguity choices:', err);
@@ -101,7 +112,7 @@ export function PlannerScreen() {
       perfLog('planner:ambiguity-resolved', { taxonomyEntryId, subtypeId, remembered: rememberChoices });
     }
 
-    await runOptimization(finalItems);
+    await runOptimization(finalItems, resolvedZipcode);
   };
 
   const handleStartShopping = useCallback(async (candidate: PlanCandidate) => {
@@ -155,9 +166,6 @@ export function PlannerScreen() {
                 multiline
                 textAlignVertical="top"
               />
-              {!zipcode && (
-                <Text style={styles.warningText}>Sign in and set your ZIP code in Profile to build a plan.</Text>
-              )}
               <AnimatedPressable
                 onPress={handleCreatePlan}
                 disabled={!canSubmit}
@@ -260,7 +268,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md + 2,
     fontSize: 14, color: colors.charcoal, minHeight: 190,
   },
-  warningText: { color: '#92400E', fontSize: 12 },
   primaryButton: {
     backgroundColor: colors.green, borderRadius: radius.md, paddingVertical: spacing.md + 2,
     minHeight: 50, alignItems: 'center', justifyContent: 'center',

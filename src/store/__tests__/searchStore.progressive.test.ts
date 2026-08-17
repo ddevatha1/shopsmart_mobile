@@ -6,8 +6,11 @@ import type { SearchResponse, ApiProduct } from '../../models/types';
 // search guarding) and both touch device storage in ways this test doesn't
 // need to exercise — stubbed out so this stays a fast, hermetic unit test.
 jest.mock('../../services/priceHistoryService', () => ({ recordObservations: jest.fn() }));
-jest.mock('../../store/userStore', () => ({
-  useUserStore: { getState: () => ({ user: { zipcode: '75035' }, trackSearch: jest.fn() }) },
+jest.mock('../../store/guestZipStore', () => ({
+  useGuestZipStore: { getState: () => ({ resolveZipcode: jest.fn().mockResolvedValue('75035') }) },
+}));
+jest.mock('../../store/guestSearchHistoryStore', () => ({
+  useGuestSearchHistoryStore: { getState: () => ({ track: jest.fn() }) },
 }));
 jest.mock('../../store/warmupStore', () => ({
   useWarmupStore: { getState: () => ({ markFirstSearchStart: jest.fn(), markFirstSearchComplete: jest.fn() }) },
@@ -42,7 +45,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   useSearchStore.setState({
     hasSearched: false, loading: false, error: null, products: [], storeStatuses: [],
-    activeQuery: '', activeZip: '', correction: null,
+    activeQuery: '', activeZip: '', needsLocation: false, correction: null,
   });
 });
 

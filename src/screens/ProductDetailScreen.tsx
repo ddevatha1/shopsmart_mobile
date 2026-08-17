@@ -16,7 +16,7 @@ import { haversineDistanceMiles, formatMiles } from '../utils/geo';
 import { getStats, type PriceStats } from '../services/priceHistoryService';
 import { findSubstitution, type Substitution } from '../services/substitutionService';
 import { getPersonalizationProfile, type PersonalizationProfile } from '../services/personalizationService';
-import { useUserStore } from '../store/userStore';
+import { GUEST_OWNER_KEY } from '../services/guestIdentity';
 import { spacing, radius } from '../theme/metrics';
 import type { RootStackParamList } from '../navigation/types';
 import type { ApiProduct } from '../models/types';
@@ -79,7 +79,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   // Real, silently-learned shopping preferences (personalizationService) —
   // biases which alternative gets suggested first, never anything the
   // shopper configured directly.
-  const ownerEmail = useUserStore((s) => s.user?.email ?? '');
+  const ownerEmail = GUEST_OWNER_KEY;
   const [profile, setProfile] = useState<PersonalizationProfile | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;

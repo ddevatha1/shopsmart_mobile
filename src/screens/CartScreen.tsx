@@ -15,7 +15,7 @@ import Animated, {
 import type { CartItem, StoreName, TripPlan } from '../models/types';
 import { cartItemCount, cartTotal, useCartStore } from '../store/cartStore';
 import { useSearchStore } from '../store/searchStore';
-import { useUserStore } from '../store/userStore';
+import { useGuestZipStore } from '../store/guestZipStore';
 import { groupCartByStore, locationKey } from '../utils/groupCartByStore';
 import { planShoppingTrip } from '../services/tripService';
 import { categorizeProduct, GROCERY_CATEGORIES, type GroceryCategory } from '../services/groceryCategoryService';
@@ -42,9 +42,10 @@ export function CartScreen() {
   const remove = useCartStore((s) => s.remove);
   const addToCart = useCartStore((s) => s.addToCart);
   const activeZip = useSearchStore((s) => s.activeZip);
-  const user = useUserStore((s) => s.user);
+  const guestZip = useGuestZipStore((s) => s.zipcode);
+  const weeklyBudget = useGuestZipStore((s) => s.weeklyBudget);
 
-  const zipcode = activeZip || user?.zipcode || '';
+  const zipcode = activeZip || guestZip || '';
   const total = cartTotal(items);
   const uniqueStores = Array.from(new Set(items.map((i) => i.product.store)));
 
@@ -113,13 +114,13 @@ export function CartScreen() {
   const [advisorInsight, setAdvisorInsight] = useState<AdvisorInsight | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getCartInsight({ groups, trip: tripPreview, cartTotal: total, weeklyBudget: user?.weeklyBudget }).then((insight) => {
+    getCartInsight({ groups, trip: tripPreview, cartTotal: total, weeklyBudget: weeklyBudget ?? undefined }).then((insight) => {
       if (!cancelled) setAdvisorInsight(insight);
     });
     return () => {
       cancelled = true;
     };
-  }, [groups, tripPreview, total, user?.weeklyBudget]);
+  }, [groups, tripPreview, total, weeklyBudget]);
 
   const cartSuggestions = useMemo(() => getCartSuggestions(items), [items]);
 

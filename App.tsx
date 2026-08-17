@@ -14,7 +14,8 @@ import {
 } from '@expo-google-fonts/manrope';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { useCartStore } from './src/store/cartStore';
-import { useUserStore } from './src/store/userStore';
+import { useGuestZipStore } from './src/store/guestZipStore';
+import { useGuestSearchHistoryStore } from './src/store/guestSearchHistoryStore';
 import { useOnboardingStore } from './src/store/onboardingStore';
 import { useWarmupStore } from './src/store/warmupStore';
 import { perfLog } from './src/utils/perfLog';
@@ -28,7 +29,8 @@ perfLog('app:start');
 
 export default function App() {
   const hydrateCart = useCartStore((s) => s.hydrate);
-  const hydrateUser = useUserStore((s) => s.hydrate);
+  const hydrateGuestZip = useGuestZipStore((s) => s.hydrate);
+  const hydrateGuestSearchHistory = useGuestSearchHistoryStore((s) => s.hydrate);
   const hydrateOnboarding = useOnboardingStore((s) => s.hydrate);
   const warmup = useWarmupStore((s) => s.warmup);
 
@@ -43,35 +45,46 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Independent of the signed-in user (it must work before an account
-    // even exists, at the Welcome screen) — fired in parallel rather than
-    // chained after hydrateUser.
     hydrateOnboarding();
   }, [hydrateOnboarding]);
 
   useEffect(() => {
-    // Cart is scoped per signed-in account, so it must hydrate after the
-    // user does — otherwise it would momentarily load with no owner and
-    // come up empty before the correct (or newly-registered) account's
-    // cart is known.
-    hydrateUser().then(() => {
-      hydrateCart();
-      // Background warm-up (backend session/store-location init) — fired
-      // once per app launch, deliberately not awaited: the homepage and
-      // splash-to-Tabs transition must never wait on this. Uses the
-      // shopper's saved zip if they've signed in before, so the
-      // zip-specific nearest-store lookups warm up too, not just the
-      // zip-independent session/token pieces. See warmupStore.ts for the
-      // dedup guard that keeps this safe to call again on remount.
-      const zipcode = useUserStore.getState().user?.zipcode;
+    // No account to hydrate first anymore — cart is a single, always-
+    // present device-local cart (see cartStore.ts's GUEST_OWNER_KEY), so
+    // it hydrates independently and immediately, same as everything else
+    // here. Never blocks the Tabs screen from rendering: hydration just
+    // fills in the real cart contents a moment after first paint.
+    hydrateCart();
+  }, [hydrateCart]);
+
+  useEffect(() => {
+    // Deliberately NOT the trigger for a location-permission prompt —
+    // this only reads whatever ZIP (if any) was already resolved and
+    // cached on a previous search/session (see guestZipStore.ts). If
+    // none exists yet, `zipcode` is simply empty and warm-up runs its
+    // zip-independent pieces only; the actual location prompt happens
+    // later, only when the shopper performs a real search (see
+    // searchStore.ts's resolveZipcode call) — never here, at launch.
+    hydrateGuestZip().then(() => {
+      // Fire-and-forget, deliberately not awaited: the Tabs screen must
+      // never wait on this. See warmupStore.ts for the dedup guard that
+      // keeps this safe to call again on remount.
+      const zipcode = useGuestZipStore.getState().zipcode || undefined;
       warmup(zipcode);
     });
-  }, [hydrateUser, hydrateCart, warmup]);
+  }, [hydrateGuestZip, warmup]);
+
+  useEffect(() => {
+    hydrateGuestSearchHistory();
+  }, [hydrateGuestSearchHistory]);
 
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded) {
-      // Our custom SplashScreen component has now mounted underneath —
-      // hide the native one so control hands off seamlessly.
+      // The real first screen (Search, inside Tabs — see AppNavigator)
+      // has now mounted underneath — hide the native splash so control
+      // hands off directly to it. No custom in-app splash/onboarding
+      // screen sits in between anymore (see requirement: the first
+      // usable screen is search, with no intermediate screens).
       await SplashScreenNative.hideAsync();
     }
   }, [fontsLoaded]);

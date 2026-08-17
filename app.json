@@ -1,13 +1,18 @@
 {
   "expo": {
-    "name": "shopsmart_mobile",
+    "name": "ShopAI",
     "slug": "shopsmart_mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "owner": "ddevatha",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ddevatha.shopai",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -36,9 +41,15 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "ShopSmart uses your location to start your shopping route from where you are."
+          "locationWhenInUsePermission": "ShopAI uses your location to start your shopping route from where you are."
         }
-      ]
-    ]
+      ],
+      "expo-status-bar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7dbdfe8f-a1be-4ad1-b415-077112833c90"
+      }
+    }
   }
 }

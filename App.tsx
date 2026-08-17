@@ -20,9 +20,14 @@ import { useOnboardingStore } from './src/store/onboardingStore';
 import { useWarmupStore } from './src/store/warmupStore';
 import { perfLog } from './src/utils/perfLog';
 
-// Keep the native (OS-level) splash visible until our fonts are ready —
-// avoids a flash of un-styled/system-font text before our custom animated
-// SplashScreen (src/screens/SplashScreen.tsx) takes over.
+// Keep the native (OS-level) splash screen (see app.json's expo-splash-
+// screen config: assets/splash-icon.png on a mint background) visible
+// until fonts are ready AND the real first screen (Search, inside Tabs)
+// has mounted underneath — see onLayoutRootView below, which is the only
+// place that ever hides it. No custom JS-rendered splash route sits in
+// between: this is purely "hide the native splash the moment the app is
+// actually ready," never an auth gate and never an artificial minimum
+// duration.
 SplashScreenNative.preventAutoHideAsync();
 
 perfLog('app:start');

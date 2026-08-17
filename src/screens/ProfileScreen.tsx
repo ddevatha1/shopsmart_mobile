@@ -128,7 +128,7 @@ export function ProfileScreen() {
             <Text style={styles.restartOnboardingText}>Reset Tips</Text>
           </TouchableOpacity>
 
-          <Text style={styles.footerTagline}>ShopSmart — Compare grocery prices across 9 stores</Text>
+          <Text style={styles.footerTagline}>ShopAI — Compare grocery prices across 9 stores</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

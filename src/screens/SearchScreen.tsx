@@ -574,7 +574,7 @@ function SearchHeader({
 
         {hasSearched && !loading && error == null && !needsLocation && displayedCount > 0 && (
           <View style={styles.hintSlot}>
-            <ContextualHint hintKey="search-compare" message="ShopSmart compares prices across stores." />
+            <ContextualHint hintKey="search-compare" message="ShopAI compares prices across stores." />
           </View>
         )}
 

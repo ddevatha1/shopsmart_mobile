@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { STORE_NAMES, type ApiProduct, type QueryCorrectionInfo, type StoreStatus } from '../models/types';
 import { searchRepository } from '../repositories/searchRepository';
-import { useUserStore } from './userStore';
+import { useGuestZipStore } from './guestZipStore';
+import { useGuestSearchHistoryStore } from './guestSearchHistoryStore';
 import { useWarmupStore } from './warmupStore';
 import { recordObservations } from '../services/priceHistoryService';
 import { perfLog } from '../utils/perfLog';
@@ -14,6 +15,12 @@ interface SearchState {
   storeStatuses: StoreStatus[];
   activeQuery: string;
   activeZip: string;
+  /** Set only when a search couldn't determine a ZIP to search near at
+   * all (location permission denied/unavailable and none was ever set) —
+   * SearchScreen reads this to show "we need your location or ZIP" copy
+   * instead of the generic empty-results state, which would otherwise be
+   * misleading (this isn't "no products found," it's "never searched"). */
+  needsLocation: boolean;
   /** Set only when the backend's query-correction pipeline (see
    * backend/src/services/queryCorrection.ts) found a typo worth surfacing —
    * the "Did you mean" banner reads this directly. */
@@ -105,6 +112,26 @@ async function pollForLateResults(searchId: string, myGeneration: number, search
     }
   }
 
+  // Genuinely timed out — some store(s) never reached a final state within
+  // POLL_MAX_DURATION_MS (sized off the backend's own worst-case shape; see
+  // this constant's header comment). Root cause of a real, confirmed UX
+  // bug this fixes: leaving those stores' status as 'pending' forever once
+  // polling itself stops meant the UI had no way to tell "genuinely still
+  // searching" apart from "gave up but never said so" — a shopper could be
+  // staring at a "still searching…" state that would in fact never update
+  // again. Marking them 'error' here (only for THIS still-current search;
+  // see the generation check above) gives the screen a real terminal state
+  // to render instead: either the products that DID come in, or an honest
+  // "no results" — never an indefinite spinner.
+  if (myGeneration === searchGeneration) {
+    const current = useSearchStore.getState();
+    const settledStatuses = current.storeStatuses.map((s) =>
+      s.status === 'pending'
+        ? { ...s, status: 'error' as const, error: 'This store is taking longer than expected.' }
+        : s,
+    );
+    useSearchStore.setState({ storeStatuses: settledStatuses });
+  }
   perfLog('search:poll-stopped', { searchId, reason: 'max-duration' });
 }
 
@@ -116,13 +143,17 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   storeStatuses: [],
   activeQuery: '',
   activeZip: '',
+  needsLocation: false,
   correction: null,
 
-  // Mirrors runSearch() in page.tsx. ZIP code is never passed in — it's
-  // collected once at sign-up and read from the signed-in user here, the
-  // single source of truth for it everywhere in the app.
+  // No account, no sign-up-collected ZIP anymore — see guestZipStore.ts.
+  // A ZIP already known (a previous search, or one set by hand in
+  // Settings) resolves instantly with no prompt; the very first search
+  // of a session that doesn't have one yet is what triggers the real
+  // native iOS location-permission dialog (via getCurrentCoordinates,
+  // inside resolveZipcode) — never on app launch, only right here, right
+  // when a ZIP is actually needed.
   search: async (query, options) => {
-    const zipcode = useUserStore.getState().user?.zipcode ?? '';
     const isFirstSearch = !get().hasSearched;
     if (isFirstSearch) useWarmupStore.getState().markFirstSearchStart();
     const searchStart = Date.now();
@@ -130,18 +161,38 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     searchGeneration += 1;
     const myGeneration = searchGeneration;
 
+    // Shown immediately — resolving a ZIP (location permission prompt +
+    // reverse geocode, the first time) can itself take a moment, and the
+    // shopper should see "searching," not a frozen search button, for
+    // every bit of that wait, not just the network request after it.
     set({
       hasSearched: true,
       loading: true,
       error: null,
+      needsLocation: false,
       products: [],
       storeStatuses: STORE_NAMES.map((store) => ({ store, status: 'loading' as const })),
       activeQuery: query,
-      activeZip: zipcode,
       correction: null,
     });
 
-    useUserStore.getState().trackSearch(query);
+    const zipcode = await useGuestZipStore.getState().resolveZipcode();
+    if (myGeneration !== searchGeneration) return; // superseded while resolving location
+
+    if (!zipcode) {
+      // Never a login-style barrier and never a fake permission dialog of
+      // our own (see locationService.ts / guestZipStore.ts) — this is the
+      // one honest thing left to tell the shopper: we genuinely don't
+      // know where to search yet, and why (denied/unavailable location,
+      // no ZIP ever set). SearchScreen reads `needsLocation` to show that
+      // distinctly from "searched and found nothing."
+      set({ loading: false, needsLocation: true, activeZip: '' });
+      if (isFirstSearch) useWarmupStore.getState().markFirstSearchComplete();
+      return;
+    }
+
+    set({ activeZip: zipcode });
+    useGuestSearchHistoryStore.getState().track(query);
 
     try {
       // The backend's own response here already arrives as soon as the

@@ -12,9 +12,6 @@ import { CompareScreen } from '../screens/CompareScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { RouteScreen } from '../screens/RouteScreen';
 import { PlannerScreen } from '../screens/PlannerScreen';
-import { AuthScreen } from '../screens/AuthScreen';
-import { SplashScreen } from '../screens/SplashScreen';
-import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { cartItemCount, useCartStore } from '../store/cartStore';
 import { colors } from '../theme/colors';
 import { duration, easing } from '../theme/motion';
@@ -111,24 +108,29 @@ const tabIconStyles = StyleSheet.create({
   badgeText: { color: colors.white, fontSize: 9, fontWeight: '700' },
 });
 
+/**
+ * No account, no sign-in, no splash/onboarding screen in front of Tabs —
+ * `Tabs` (Search is its first tab) is the actual first screen a shopper
+ * ever sees, full stop. There used to be a Splash → Onboarding → (Auth)
+ * → Tabs chain here; all of it existed only to animate a logo for a
+ * couple of seconds and/or force account creation before the app was
+ * usable, neither of which this app does anymore.
+ */
 export function AppNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator
-        initialRouteName="Splash"
+        initialRouteName="Tabs"
         screenOptions={{
           headerShown: false,
           contentStyle: { width: '100%', maxWidth: webContentMaxWidth, alignSelf: 'center' },
         }}
       >
-        <Stack.Screen name="Splash" component={SplashScreen} options={{ animation: 'none' }} />
-        <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ animation: 'fade' }} />
-        <Stack.Screen name="Tabs" component={Tabs} options={{ animation: 'fade' }} />
+        <Stack.Screen name="Tabs" component={Tabs} options={{ animation: 'none' }} />
         <Stack.Screen name="Compare" component={CompareScreen} options={{ headerShown: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Route" component={RouteScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Planner" component={PlannerScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'fullScreenModal' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

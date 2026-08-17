@@ -16,13 +16,15 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { STORE_NAMES, type ApiProduct, type QueryCorrectionInfo, type StoreName } from '../models/types';
 import { useSearchStore } from '../store/searchStore';
-import { useUserStore } from '../store/userStore';
+import { useGuestZipStore } from '../store/guestZipStore';
+import { useGuestSearchHistoryStore } from '../store/guestSearchHistoryStore';
+import { GUEST_OWNER_KEY } from '../services/guestIdentity';
 import { useCartStore } from '../store/cartStore';
 import { useStoreModeStore } from '../store/storeModeStore';
 import { ProductGroupCard } from '../components/ProductGroupCard';
 import { ProductCard } from '../components/ProductCard';
 import { SearchProgress } from '../components/SearchProgress';
-import { StillSearchingBanner, StoreStillSearchingState } from '../components/StillSearchingBanner';
+import { StillSearchingBanner, StoreStillSearchingState, AllStoresStillSearchingState } from '../components/StillSearchingBanner';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { AdvisorCard } from '../components/AdvisorCard';
@@ -107,16 +109,17 @@ export function SearchScreen() {
   const setSelectedStore = useStoreModeStore((s) => s.setSelectedStore);
   const [pickerVisible, setPickerVisible] = useState(false);
 
-  // ZIP code is collected once at sign-up (see AuthScreen) and edited only
-  // from Profile — the homepage never asks for it.
-  const user = useUserStore((s) => s.user);
-  const zipcode = user?.zipcode ?? '';
+  // No account, no sign-up-collected ZIP — search()'s own zip resolution
+  // (guestZipStore.resolveZipcode, triggered on submit, not here) is the
+  // only thing that ever sets one; this is read purely so `canSubmit`
+  // below never blocks on it (see that constant's own comment).
   // Most recent searches first, capped short — falls back to the static
-  // POPULAR list for a brand-new account with no history yet (see
-  // SearchHeader below).
+  // POPULAR list for a shopper with no history yet (see SearchHeader
+  // below).
+  const searchHistory = useGuestSearchHistoryStore((s) => s.history);
   const recentSearches = useMemo(
-    () => [...(user?.searchHistory ?? [])].reverse().slice(0, 6),
-    [user?.searchHistory],
+    () => [...searchHistory].reverse().slice(0, 6),
+    [searchHistory],
   );
 
   // The Smart Shopping Advisor's one Home-screen slot — a pantry reminder
@@ -135,21 +138,18 @@ export function SearchScreen() {
     : allSearchProducts;
   useEffect(() => {
     let cancelled = false;
-    // Always resolved asynchronously (even the "signed out" case), so
-    // setAdvisorInsight is never called synchronously within the effect
-    // body itself — only from inside this .then() continuation.
-    const insightPromise = user
-      ? getHomeInsight({ ownerEmail: user.email, recentSearchProducts: productsForAdvisor })
-      : Promise.resolve(null);
-    insightPromise.then((insight) => {
+    // Always resolved asynchronously so setAdvisorInsight is never called
+    // synchronously within the effect body itself — only from inside this
+    // .then() continuation.
+    getHomeInsight({ ownerEmail: GUEST_OWNER_KEY, recentSearchProducts: productsForAdvisor }).then((insight) => {
       if (!cancelled) setAdvisorInsight(insight);
     });
     return () => {
       cancelled = true;
     };
-  }, [user, productsForAdvisor]);
+  }, [productsForAdvisor]);
 
-  const { hasSearched, loading, error, activeQuery, correction, search } = useSearchStore();
+  const { hasSearched, loading, error, needsLocation, activeQuery, correction, search } = useSearchStore();
   const products = useSearchStore((s) => s.products);
   const storeStatuses = useSearchStore((s) => s.storeStatuses);
   // Stores the backend is still working on for the CURRENT search (see
@@ -163,7 +163,12 @@ export function SearchScreen() {
   );
   const addToCart = useCartStore((s) => s.addToCart);
 
-  const canSubmit = query.trim().length > 0 && zipcode.length === 5;
+  // No longer gated on already knowing a ZIP — search() resolves one
+  // itself (via location, prompting only the first time) the moment a
+  // search actually happens. Requiring a ZIP up front here would
+  // permanently disable the search button for a shopper who's never
+  // searched yet, since nothing else in the app collects one anymore.
+  const canSubmit = query.trim().length > 0;
   // Stage 1 shows every direct match, unfiltered — no store/deal/rating
   // filtering happens at this layer any more (see CompareScreen, where
   // Filter & Sort now lives, scoped to one category at a time). Stage 1
@@ -288,6 +293,7 @@ export function SearchScreen() {
             onSubmit={handleSubmit}
             hasSearched={hasSearched}
             error={error}
+            needsLocation={needsLocation}
             displayedCount={combinedGroup.listings.length}
             totalProductCount={products.length}
             recentSearches={recentSearches}
@@ -344,6 +350,7 @@ export function SearchScreen() {
             onSubmit={handleSubmit}
             hasSearched={hasSearched}
             error={error}
+            needsLocation={needsLocation}
             displayedCount={displayedItems.length}
             pendingStores={pendingStores}
             totalProductCount={products.length}
@@ -422,6 +429,10 @@ interface SearchHeaderProps {
   onSubmit: () => void;
   hasSearched: boolean;
   error: string | null;
+  /** True only when a search couldn't determine where to search near at
+   * all (location permission denied/unavailable, no ZIP ever set) — see
+   * searchStore.ts. Distinct from "searched and found nothing." */
+  needsLocation: boolean;
   displayedCount: number;
   totalProductCount: number;
   recentSearches: string[];
@@ -443,7 +454,7 @@ interface SearchHeaderProps {
 
 function SearchHeader({
   query, setQuery, invalidQueryMessage, canSubmit, loading, onSubmit,
-  hasSearched, error, displayedCount, totalProductCount, recentSearches, advisorInsight,
+  hasSearched, error, needsLocation, displayedCount, totalProductCount, recentSearches, advisorInsight,
   onSeeProduct, onAddToCart, selectedStore, onOpenStorePicker, onClearStore,
   correction, onSearchOriginal, onOpenPlanner, onQuickSearch, pendingStores,
 }: SearchHeaderProps) {
@@ -550,7 +561,18 @@ function SearchHeader({
         {hasSearched && loading && <SearchProgress />}
         {hasSearched && !loading && error != null && <ErrorPanel message={error} />}
 
-        {hasSearched && !loading && error == null && displayedCount > 0 && (
+        {hasSearched && !loading && error == null && needsLocation && (
+          <FadeInState>
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>We need your location to search nearby stores</Text>
+              <Text style={styles.emptyText}>
+                Allow location access when prompted, or set your ZIP code in Settings.
+              </Text>
+            </View>
+          </FadeInState>
+        )}
+
+        {hasSearched && !loading && error == null && !needsLocation && displayedCount > 0 && (
           <View style={styles.hintSlot}>
             <ContextualHint hintKey="search-compare" message="ShopSmart compares prices across stores." />
           </View>
@@ -562,13 +584,33 @@ function SearchHeader({
          * Skipped when the store-specific "still searching" empty state
          * below is about to show instead, so a single-store search with
          * zero results so far never shows the same information twice. */}
-        {hasSearched && !loading && error == null && pendingStores.length > 0 && !(displayedCount === 0 && selectedStorePending) && (
+        {hasSearched && !loading && error == null && !needsLocation && pendingStores.length > 0 && !(displayedCount === 0 && selectedStorePending) && (
           <StillSearchingBanner stores={pendingStores} />
         )}
 
-        {hasSearched && !loading && error == null && displayedCount === 0 && (
-          selectedStore && selectedStorePending ? (
-            <StoreStillSearchingState store={selectedStore} />
+        {/* Root cause of a real, confirmed UX bug this fixes: this block
+         * used to render "No comparable products found" the instant
+         * `displayedCount === 0`, regardless of whether any store had
+         * actually finished searching yet — a search still genuinely in
+         * flight (see searchStore.ts's progressive/poll architecture)
+         * could show a definitive "not found" headline seconds before its
+         * own background poll brought in real results. `pendingStores`
+         * is reactive (it's derived straight from `storeStatuses`, which
+         * the poll loop keeps live-updated — see SearchScreen's own
+         * `pendingStores` comment), so as long as ANY store hasn't
+         * reached a final status yet, this shows an honest "still
+         * searching" state instead — never a "no results" claim. Once
+         * every store is final (success, error, or unavailable — or the
+         * poll loop's own timeout has converted a stuck 'pending' into
+         * 'error', see pollForLateResults), `pendingStores` is empty and
+         * the real empty state below is the honest, accurate one. */}
+        {hasSearched && !loading && error == null && !needsLocation && displayedCount === 0 && (
+          pendingStores.length > 0 ? (
+            selectedStore && selectedStorePending ? (
+              <StoreStillSearchingState store={selectedStore} />
+            ) : (
+              <AllStoresStillSearchingState count={pendingStores.length} />
+            )
           ) : (
             <FadeInState>
               <View style={styles.emptyState}>
@@ -576,13 +618,11 @@ function SearchHeader({
                   {selectedStore ? `No products found at ${selectedStore}` : 'No comparable products found'}
                 </Text>
                 <Text style={styles.emptyText}>
-                  {pendingStores.length > 0
-                    ? 'Still gathering results from the stores that are searching — this will update automatically.'
-                    : totalProductCount === 0
-                      ? 'Try a different search term.'
-                      : selectedStore
-                        ? 'Try a different search term, or compare across stores instead.'
-                        : 'Check the refinement options below.'}
+                  {totalProductCount === 0
+                    ? 'Try a different search term.'
+                    : selectedStore
+                      ? 'Try a different search term, or compare across stores instead.'
+                      : 'Check the refinement options below.'}
                 </Text>
               </View>
             </FadeInState>
